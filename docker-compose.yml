@@ -1,0 +1,30 @@
+version: "3"
+
+networks:
+  elastic:
+    driver: bridge
+
+services:
+  elastic:
+    image: elasticsearch:7.9.3
+    ports:
+      - "9200:9200"
+    networks:
+      - elastic
+    environment:
+      discovery.type: single-node
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    logging:
+      driver: none
+  kibana:
+    image: kibana:7.9.3
+    ports:
+      - "5601:5601"
+    networks:
+      - elastic
+    logging:
+      driver: none
