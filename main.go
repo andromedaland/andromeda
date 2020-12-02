@@ -75,6 +75,18 @@ func main() {
 
 	log.Println(l)
 
+	versionMap := make(map[string]denoapi.Versions)
+	for _, m := range l[:5] {
+		versions, err := denoapi.ListModuleVersions(m)
+		if err != nil {
+			log.Printf("error: %s\n", err)
+			continue
+		}
+		versionMap[m] = versions
+	}
+
+	log.Println(versionMap)
+
 	log.Println("done.")
 	os.Exit(0)
 }

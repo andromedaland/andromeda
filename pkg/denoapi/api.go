@@ -2,6 +2,7 @@ package denoapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
@@ -65,14 +66,37 @@ func ListAllModules() (SimpleModuleList, error) {
 	if err != nil {
 		return SimpleModuleList{}, errors.Errorf("failed to get simple list of modules: %s", err)
 	}
+	defer resp.Body.Close()
 
 	var moduleList SimpleModuleList
-	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
-	//log.Printf("raw body: %s\n", string(body))
 	err = json.Unmarshal(body, &moduleList)
+
 	if err != nil {
 		return moduleList, errors.Errorf("failed to unmarshal response body: %s", err)
 	}
 	return moduleList, nil
+}
+
+func ListModuleVersions(mod string) (Versions, error) {
+	u := url.URL{
+		Scheme: "https",
+		Host:   CDN_HOST,
+		Path:   fmt.Sprintf("%s/meta/versions.json", mod),
+	}
+
+	resp, err := http.Get(u.String())
+	if err != nil {
+		return Versions{}, errors.Errorf("failed to get versions for module %s: %s\n", mod, err)
+	}
+	defer resp.Body.Close()
+
+	var ver Versions
+	body, err := ioutil.ReadAll(resp.Body)
+	err = json.Unmarshal(body, &ver)
+
+	if err != nil {
+		return ver, errors.Errorf("failed to unmarshal response body: %s", err)
+	}
+	return ver, nil
 }
