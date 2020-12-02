@@ -1,30 +1,35 @@
-version: "3"
+# Taken from https://raw.githubusercontent.com/dgraph-io/dgraph/master/contrib/config/docker/docker-compose.yml
+# Apache 2.0 Licensed
 
-networks:
-  elastic:
-    driver: bridge
+# This Docker Compose file can be used to quickly bootup Dgraph Zero
+# and Alpha in different Docker containers.
 
+# It mounts /tmp/data on the host machine to /dgraph within the
+# container. You can change /tmp/data to a more appropriate location.
+# Run `docker-compose up` to start Dgraph.
+
+version: "3.2"
 services:
-  elastic:
-    image: elasticsearch:7.9.3
+  zero:
+    image: dgraph/dgraph:latest
+    volumes:
+      - /tmp/dgraph:/dgraph
     ports:
-      - "9200:9200"
-    networks:
-      - elastic
-    environment:
-      discovery.type: single-node
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    logging:
-      driver: none
-  kibana:
-    image: kibana:7.9.3
+      - 5080:5080
+      - 6080:6080
+    restart: on-failure
+    command: dgraph zero --my=zero:5080
+  alpha:
+    image: dgraph/dgraph:latest
+    volumes:
+      - /tmp/dgraph:/dgraph
     ports:
-      - "5601:5601"
-    networks:
-      - elastic
-    logging:
-      driver: none
+      - 8080:8080
+      - 9080:9080
+    restart: on-failure
+    command: dgraph alpha --my=alpha:7080 --zero=zero:5080 --whitelist=0.0.0.0/0
+  ratel:
+    image: dgraph/dgraph:latest
+    ports:
+      - 8000:8000
+    command: dgraph-ratel

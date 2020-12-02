@@ -1,30 +1,73 @@
+// Copyright 2020 William Perron. All rights reserved. MIT License.
 package main
 
 import (
-	elastic "github.com/elastic/go-elasticsearch/v7"
+	"context"
+	"github.com/dgraph-io/dgo"
+	"github.com/dgraph-io/dgo/protos/api"
+	"google.golang.org/grpc"
 	"log"
 	"os"
 )
 
-var es *elastic.Client
+var client *dgo.Dgraph
 
 func init() {
-	var err error
-	es, err = elastic.NewDefaultClient()
+	// TODO(wperron): parameterize alpha URL
+	d, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
 	if err != nil {
-		log.Fatalf("unable to create ElasticSearch client: %s\n", err)
+		log.Fatalf("failed to dial the alpha server at localhost:9080: %s\n", err)
 	}
 
-	log.Printf("elastic client version: %s\n", elastic.Version)
+	client = dgo.NewDgraphClient(api.NewDgraphClient(d))
 
-	info, err :=  es.API.Info()
+	// Drop all data including schema from the dgraph instance. Useful for PoC
+	err = client.Alter(context.Background(), &api.Operation{DropOp: api.Operation_ALL})
 	if err != nil {
-		log.Fatalf("unable to get cluster information: %s\n", err)
+		log.Fatalf("error while cleaning the dgraph instance: %s\n", err)
 	}
-	log.Printf("elastic cluster info: %v\n", info)
 }
 
 func main() {
+	ctx := context.Background()
+
+	err := client.Alter(ctx, &api.Operation{
+		Schema: `
+			type Module {
+				name
+				description
+				stars
+				version
+			}
+			type ModuleVersion {
+				module_version
+				README
+				file_specifier
+			}
+			type File {
+				specifier
+				depends_on
+				dependent_of
+			}
+			name: string @index(term, fulltext, trigram) .
+			description: string @index(term, fulltext, trigram) .
+			stars: int .
+			version: [uid] @reverse .
+			module_version: string @index(term, fulltext, trigram) .
+			README: string @index(term, fulltext, trigram) .
+			file_specifier: [uid] .
+			specifier: string .
+			depends_on: [uid] @reverse .
+			dependent_of: [uid] @reverse .
+		`,
+	})
+
+	if err != nil {
+		log.Fatalf("failed to alter schema: %s\n", err)
+	}
+
+	log.Println("Success.")
+
 	log.Println("done.")
 	os.Exit(0)
 }
