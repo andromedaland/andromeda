@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/dgraph-io/dgo"
 	"github.com/dgraph-io/dgo/protos/api"
+	"github.com/wperron/depgraph/pkg/denoapi"
 	"google.golang.org/grpc"
 	"log"
 	"os"
@@ -65,8 +66,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to alter schema: %s\n", err)
 	}
+	log.Println("Successfully altered schema on startup.")
 
-	log.Println("Success.")
+	l, err := denoapi.ListAllModules()
+	if err != nil {
+		log.Fatalf("failed to get list of all module names: %s\n", err)
+	}
+
+	log.Println(l)
 
 	log.Println("done.")
 	os.Exit(0)

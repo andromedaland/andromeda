@@ -1,7 +1,20 @@
 package denoapi
 
-const CDN_HOST = "https://cdn.deno.land"
-const API_HOST = "https://api.deno.land"
+import (
+	"encoding/json"
+	"github.com/pkg/errors"
+	"io/ioutil"
+	"net/http"
+)
+import "net/url"
+
+const CDN_HOST = "cdn.deno.land"
+const API_HOST = "api.deno.land"
+
+type ApiResponse struct {
+	Success bool        `json:"success"`
+	Data    interface{} `json:"data"`
+}
 
 type SimpleModuleList []string
 
@@ -38,4 +51,28 @@ type NodeGraph struct {
 type Node struct {
 	Size int      `json:"size"`
 	Deps []string `json:"deps"`
+}
+
+func ListAllModules() (SimpleModuleList, error) {
+	u := url.URL{
+		Scheme:   "https",
+		Host:     API_HOST,
+		Path:     "modules",
+		RawQuery: "simple=1",
+	}
+
+	resp, err := http.Get(u.String())
+	if err != nil {
+		return SimpleModuleList{}, errors.Errorf("failed to get simple list of modules: %s", err)
+	}
+
+	var moduleList SimpleModuleList
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	//log.Printf("raw body: %s\n", string(body))
+	err = json.Unmarshal(body, &moduleList)
+	if err != nil {
+		return moduleList, errors.Errorf("failed to unmarshal response body: %s", err)
+	}
+	return moduleList, nil
 }
