@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -29,7 +31,7 @@ type Client struct {
 
 type Module struct {
 	Name     string
-	Versions versions
+	Versions map[string][]directoryListing
 }
 
 type simpleModuleList []string
@@ -46,27 +48,14 @@ type versions struct {
 }
 
 type meta struct {
-	UploadedAt       string           `json:"uploaded_at"`
-	DirectoryListing DirectoryListing `json:"directory_listing"`
+	UploadedAt       string             `json:"uploaded_at"`
+	DirectoryListing []directoryListing `json:"directory_listing"`
 }
 
-type DirectoryListing struct {
+type directoryListing struct {
 	Path string `json:"path"`
 	Size int    `json:"size"`
 	Type string `json:"type"`
-}
-
-type DepsV2 struct {
-	Graph NodeGraph `json:"graph"`
-}
-
-type NodeGraph struct {
-	Nodes map[string]Node `json:"nodes"`
-}
-
-type Node struct {
-	Size int      `json:"size"`
-	Deps []string `json:"deps"`
 }
 
 func NewClient() Client {
@@ -82,6 +71,7 @@ func (c *Client) doRequest(req *http.Request) (*http.Response, error) {
 
 	time.Sleep(time.Until(c.last.Add(time.Duration(c.ThrottleRate) * time.Second)))
 	c.last = time.Now()
+	log.Printf("request %s\n", req.URL.String())
 	req.Header.Set("User-Agent", "Wperron/Depgraph-v0.1")
 	return c.Transport.Do(req)
 }
@@ -100,22 +90,59 @@ func (c *Client) IterateModules() (chan Module, chan error) {
 		}
 
 		i := 0
+		wg := sync.WaitGroup{}
 		for _, mod := range list {
 			i++
 			if i > 10 {
 				break
 			}
-			versions, err := c.listModuleVersions(mod)
-			if err != nil {
-				errs <- errors.Errorf("failed to get versions for module %s: %s", mod, err)
-				continue
-			}
+			wg.Add(1)
 
-			out <- Module{
-				Name:     mod,
-				Versions: versions,
-			}
+			// TODO(wperron): make this function asynchronous
+			go func(mod string, wg *sync.WaitGroup) {
+				versions, err := c.listModuleVersions(mod)
+				if err != nil {
+					errs <- err
+					return
+				}
+
+				versionMap := make(map[string][]directoryListing)
+
+				for _, v := range versions.Versions {
+					dir, err := c.getModuleVersionDirectoryListing(mod, v)
+					if err != nil {
+						errs <- err
+					}
+
+					// Since we only care about source code files, filter out
+					// directories and non-source code files. There is also a
+					// special case for README.md to support fulltext search on
+					// the module's documentation
+					for i := 0; i < len(dir); i++ {
+						if dir[i].Type == "dir" {
+							dir = append(dir[:i], dir[i+1:]...)
+							continue
+						}
+						ext := filepath.Ext(dir[i].Path)
+						basename := filepath.Base(dir[i].Path)
+						// TODO(wperron) fix this part; clearly doesn't work
+						if ext != ".js" && ext != ".ts" && ext != ".jsx" && ext != ".tsx" && basename != "README.md" {
+							dir = append(dir[:i], dir[i+1:]...)
+							continue
+						}
+					}
+
+					versionMap[v] = dir
+				}
+
+				out <- Module{
+					Name:     mod,
+					Versions: versionMap,
+				}
+				wg.Done()
+			}(mod, &wg)
 		}
+		wg.Wait()
 
 		close(out)
 		close(errs)
@@ -171,4 +198,27 @@ func (c *Client) listModuleVersions(mod string) (versions, error) {
 		return ver, errors.Errorf("failed to unmarshal response body: %s", err)
 	}
 	return ver, nil
+}
+
+func (c *Client) getModuleVersionDirectoryListing(mod, version string) ([]directoryListing, error) {
+	u := url.URL{
+		Scheme: "https",
+		Host:   CDN_HOST,
+		Path:   fmt.Sprintf("%s/versions/%s/meta/meta.json", mod, version),
+	}
+	req, _ := http.NewRequest("GET", u.String(), nil)
+
+	resp, err := c.doRequest(req)
+	if err != nil {
+		return []directoryListing{}, errors.Errorf("failed to get directory listing for %s@%s: %s", mod, version, err)
+	}
+	defer resp.Body.Close()
+
+	var m meta
+	body, err := ioutil.ReadAll(resp.Body)
+	err = json.Unmarshal(body, &m)
+	if err != nil {
+		return []directoryListing{}, errors.Errorf("failed to unmarshal response body: %s", err)
+	}
+	return m.DirectoryListing, nil
 }
