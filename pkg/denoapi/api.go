@@ -82,6 +82,7 @@ func (c *Client) doRequest(req *http.Request) (*http.Response, error) {
 
 	time.Sleep(time.Until(c.last.Add(time.Duration(c.ThrottleRate) * time.Second)))
 	c.last = time.Now()
+	req.Header.Set("User-Agent", "Wperron/Depgraph-v0.1")
 	return c.Transport.Do(req)
 }
 
