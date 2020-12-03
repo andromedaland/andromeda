@@ -80,7 +80,7 @@ func (c *Client) doRequest(req *http.Request) (*http.Response, error) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
 
-	time.Until(c.last.Add(time.Duration(c.ThrottleRate) * time.Second))
+	time.Sleep(time.Until(c.last.Add(time.Duration(c.ThrottleRate) * time.Second)))
 	c.last = time.Now()
 	return c.Transport.Do(req)
 }
@@ -98,7 +98,12 @@ func (c *Client) IterateModules() (chan Module, chan error) {
 			return
 		}
 
+		i := 0
 		for _, mod := range list {
+			i++
+			if i > 10 {
+				break
+			}
 			versions, err := c.listModuleVersions(mod)
 			if err != nil {
 				errs <- errors.Errorf("failed to get versions for module %s: %s", mod, err)
@@ -119,16 +124,15 @@ func (c *Client) IterateModules() (chan Module, chan error) {
 }
 
 func (c *Client) listAllModules() (simpleModuleList, error) {
-	req := http.Request{
-		URL: &url.URL{
-			Scheme:   "https",
-			Host:     API_HOST,
-			Path:     "modules",
-			RawQuery: "simple=1",
-		},
+	u := url.URL{
+		Scheme:   "https",
+		Host:     API_HOST,
+		Path:     "modules",
+		RawQuery: "simple=1",
 	}
+	req, _ := http.NewRequest("GET", u.String(), nil)
 
-	resp, err := c.doRequest(&req)
+	resp, err := c.doRequest(req)
 	if err != nil {
 		return simpleModuleList{}, errors.Errorf("failed to get simple list of modules: %s", err)
 	}
@@ -145,15 +149,14 @@ func (c *Client) listAllModules() (simpleModuleList, error) {
 }
 
 func (c *Client) listModuleVersions(mod string) (versions, error) {
-	req := http.Request{
-		URL: &url.URL{
-			Scheme: "https",
-			Host:   CDN_HOST,
-			Path:   fmt.Sprintf("%s/meta/versions.json", mod),
-		},
+	u := url.URL{
+		Scheme: "https",
+		Host:   CDN_HOST,
+		Path:   fmt.Sprintf("%s/meta/versions.json", mod),
 	}
+	req, _ := http.NewRequest("GET", u.String(), nil)
 
-	resp, err := c.doRequest(&req)
+	resp, err := c.doRequest(req)
 	if err != nil {
 		return versions{}, errors.Errorf("failed to get versions for module %s: %s\n", mod, err)
 	}
