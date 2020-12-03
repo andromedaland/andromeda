@@ -3,12 +3,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/dgraph-io/dgo"
 	"github.com/dgraph-io/dgo/protos/api"
 	"github.com/wperron/depgraph/pkg/denoapi"
 	"google.golang.org/grpc"
 	"log"
 	"os"
+	"sync"
 )
 
 var client *dgo.Dgraph
@@ -30,9 +32,42 @@ func init() {
 }
 
 func main() {
+	log.Println("start.")
 	ctx := context.Background()
 
-	err := client.Alter(ctx, &api.Operation{
+	err := InitSchema(ctx)
+	if err != nil {
+		log.Fatalf("failed to initialize schema: %s\n", err)
+	}
+
+	log.Println("Successfully initialized schema on startup.")
+
+	denoClient := denoapi.NewClient()
+	modules, errs := denoClient.IterateModules()
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	go func(wg *sync.WaitGroup) {
+		for mod := range modules {
+			log.Println(mod)
+		}
+		wg.Done()
+	}(&wg)
+
+	go func(wg *sync.WaitGroup) {
+		for err := range errs {
+			log.Println(fmt.Errorf("error while consuming modules: %s", err))
+		}
+		wg.Done()
+	}(&wg)
+
+	wg.Wait()
+	log.Println("done.")
+	os.Exit(0)
+}
+
+func InitSchema(ctx context.Context) error {
+	return client.Alter(ctx, &api.Operation{
 		Schema: `
 			type Module {
 				name
@@ -62,31 +97,4 @@ func main() {
 			dependent_of: [uid] @reverse .
 		`,
 	})
-
-	if err != nil {
-		log.Fatalf("failed to alter schema: %s\n", err)
-	}
-	log.Println("Successfully altered schema on startup.")
-
-	l, err := denoapi.ListAllModules()
-	if err != nil {
-		log.Fatalf("failed to get list of all module names: %s\n", err)
-	}
-
-	log.Println(l)
-
-	versionMap := make(map[string]denoapi.Versions)
-	for _, m := range l[:5] {
-		versions, err := denoapi.ListModuleVersions(m)
-		if err != nil {
-			log.Printf("error: %s\n", err)
-			continue
-		}
-		versionMap[m] = versions
-	}
-
-	log.Println(versionMap)
-
-	log.Println("done.")
-	os.Exit(0)
 }

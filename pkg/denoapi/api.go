@@ -7,6 +7,8 @@ import (
 	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
+	"sync"
+	"time"
 )
 import "net/url"
 
@@ -18,20 +20,32 @@ type ApiResponse struct {
 	Data    interface{} `json:"data"`
 }
 
-type SimpleModuleList []string
+type Client struct {
+	Transport    *http.Client
+	ThrottleRate int // minimal interval wait between requests
+	mut          sync.Mutex
+	last         time.Time
+}
 
-type Overview struct {
+type Module struct {
+	Name     string
+	Versions versions
+}
+
+type simpleModuleList []string
+
+type overview struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	StarCount   int    `json:"star_count"`
 }
 
-type Versions struct {
+type versions struct {
 	Latest   string   `json:"latest"`
 	Versions []string `json:"versions"`
 }
 
-type Meta struct {
+type meta struct {
 	UploadedAt       string           `json:"uploaded_at"`
 	DirectoryListing DirectoryListing `json:"directory_listing"`
 }
@@ -55,21 +69,72 @@ type Node struct {
 	Deps []string `json:"deps"`
 }
 
-func ListAllModules() (SimpleModuleList, error) {
-	u := url.URL{
-		Scheme:   "https",
-		Host:     API_HOST,
-		Path:     "modules",
-		RawQuery: "simple=1",
+func NewClient() Client {
+	return Client{
+		Transport:    http.DefaultClient,
+		ThrottleRate: 1,
+	}
+}
+
+func (c *Client) doRequest(req *http.Request) (*http.Response, error) {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+
+	time.Until(c.last.Add(time.Duration(c.ThrottleRate) * time.Second))
+	c.last = time.Now()
+	return c.Transport.Do(req)
+}
+
+func (c *Client) IterateModules() (chan Module, chan error) {
+	out := make(chan Module)
+	errs := make(chan error)
+
+	go func() {
+		list, err := c.listAllModules()
+		if err != nil {
+			close(out)
+			errs <- errors.Errorf("failed to list all module names: %s", err)
+			close(errs)
+			return
+		}
+
+		for _, mod := range list {
+			versions, err := c.listModuleVersions(mod)
+			if err != nil {
+				errs <- errors.Errorf("failed to get versions for module %s: %s", mod, err)
+				continue
+			}
+
+			out <- Module{
+				Name:     mod,
+				Versions: versions,
+			}
+		}
+
+		close(out)
+		close(errs)
+	}()
+
+	return out, errs
+}
+
+func (c *Client) listAllModules() (simpleModuleList, error) {
+	req := http.Request{
+		URL: &url.URL{
+			Scheme:   "https",
+			Host:     API_HOST,
+			Path:     "modules",
+			RawQuery: "simple=1",
+		},
 	}
 
-	resp, err := http.Get(u.String())
+	resp, err := c.doRequest(&req)
 	if err != nil {
-		return SimpleModuleList{}, errors.Errorf("failed to get simple list of modules: %s", err)
+		return simpleModuleList{}, errors.Errorf("failed to get simple list of modules: %s", err)
 	}
 	defer resp.Body.Close()
 
-	var moduleList SimpleModuleList
+	var moduleList simpleModuleList
 	body, err := ioutil.ReadAll(resp.Body)
 	err = json.Unmarshal(body, &moduleList)
 
@@ -79,20 +144,22 @@ func ListAllModules() (SimpleModuleList, error) {
 	return moduleList, nil
 }
 
-func ListModuleVersions(mod string) (Versions, error) {
-	u := url.URL{
-		Scheme: "https",
-		Host:   CDN_HOST,
-		Path:   fmt.Sprintf("%s/meta/versions.json", mod),
+func (c *Client) listModuleVersions(mod string) (versions, error) {
+	req := http.Request{
+		URL: &url.URL{
+			Scheme: "https",
+			Host:   CDN_HOST,
+			Path:   fmt.Sprintf("%s/meta/versions.json", mod),
+		},
 	}
 
-	resp, err := http.Get(u.String())
+	resp, err := c.doRequest(&req)
 	if err != nil {
-		return Versions{}, errors.Errorf("failed to get versions for module %s: %s\n", mod, err)
+		return versions{}, errors.Errorf("failed to get versions for module %s: %s\n", mod, err)
 	}
 	defer resp.Body.Close()
 
-	var ver Versions
+	var ver versions
 	body, err := ioutil.ReadAll(resp.Body)
 	err = json.Unmarshal(body, &ver)
 
