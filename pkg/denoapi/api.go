@@ -36,12 +36,6 @@ type Module struct {
 
 type simpleModuleList []string
 
-type overview struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	StarCount   int    `json:"star_count"`
-}
-
 type versions struct {
 	Latest   string   `json:"latest"`
 	Versions []string `json:"versions"`
@@ -98,7 +92,6 @@ func (c *Client) IterateModules() (chan Module, chan error) {
 			}
 			wg.Add(1)
 
-			// TODO(wperron): make this function asynchronous
 			go func(mod string, wg *sync.WaitGroup) {
 				versions, err := c.listModuleVersions(mod)
 				if err != nil {
