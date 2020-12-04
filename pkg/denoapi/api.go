@@ -114,24 +114,7 @@ func (c *Client) IterateModules() (chan Module, chan error) {
 						errs <- err
 					}
 
-					// Since we only care about source code files, filter out
-					// directories and non-source code files. There is also a
-					// special case for README.md to support fulltext search on
-					// the module's documentation
-					for i := 0; i < len(dir); i++ {
-						if dir[i].Type == "dir" {
-							dir = append(dir[:i], dir[i+1:]...)
-							continue
-						}
-						ext := filepath.Ext(dir[i].Path)
-						basename := filepath.Base(dir[i].Path)
-						// TODO(wperron) fix this part; clearly doesn't work
-						if ext != ".js" && ext != ".ts" && ext != ".jsx" && ext != ".tsx" && basename != "README.md" {
-							dir = append(dir[:i], dir[i+1:]...)
-							continue
-						}
-					}
-
+					dir = stripUselessEntries(dir)
 					versionMap[v] = dir
 				}
 
@@ -221,4 +204,25 @@ func (c *Client) getModuleVersionDirectoryListing(mod, version string) ([]direct
 		return []directoryListing{}, errors.Errorf("failed to unmarshal response body: %s", err)
 	}
 	return m.DirectoryListing, nil
+}
+
+// Since we only care about source code files, filter out
+// directories and non-source code files. There is also a
+// special case for README.md to support fulltext search on
+// the module's documentation
+func stripUselessEntries(dir []directoryListing) []directoryListing {
+	for i := 0; i < len(dir); {
+		if dir[i].Type == "dir" {
+			dir = append(dir[:i], dir[i+1:]...)
+			continue
+		}
+		ext := filepath.Ext(dir[i].Path)
+		basename := filepath.Base(dir[i].Path)
+		if ext != ".js" && ext != ".ts" && ext != ".jsx" && ext != ".tsx" && basename != "README.md" {
+			dir = append(dir[:i], dir[i+1:]...)
+			continue
+		}
+		i++
+	}
+	return dir
 }
