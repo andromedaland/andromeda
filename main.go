@@ -7,8 +7,10 @@ import (
 	"github.com/dgraph-io/dgo"
 	"github.com/dgraph-io/dgo/protos/api"
 	"github.com/wperron/depgraph/pkg/denoapi"
+	"github.com/wperron/depgraph/pkg/denoinfo"
 	"google.golang.org/grpc"
 	"log"
+	"net/url"
 	"os"
 	"sync"
 )
@@ -16,7 +18,9 @@ import (
 var client *dgo.Dgraph
 
 func init() {
+	log.Println("start init.")
 	// TODO(wperron): parameterize alpha URL
+	log.Println("connecting to the dgraph cluster")
 	d, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("failed to dial the alpha server at localhost:9080: %s\n", err)
@@ -25,10 +29,12 @@ func init() {
 	client = dgo.NewDgraphClient(api.NewDgraphClient(d))
 
 	// Drop all data including schema from the dgraph instance. Useful for PoC
+	log.Println("dropping existing data in the dgraph cluster")
 	err = client.Alter(context.Background(), &api.Operation{DropOp: api.Operation_ALL})
 	if err != nil {
 		log.Fatalf("error while cleaning the dgraph instance: %s\n", err)
 	}
+	log.Println("end init.")
 }
 
 func main() {
@@ -49,7 +55,22 @@ func main() {
 	wg.Add(2)
 	go func(wg *sync.WaitGroup) {
 		for mod := range modules {
-			log.Println(mod)
+			for v, entrypoints := range mod.Versions {
+				for _, file := range entrypoints {
+					u := url.URL{
+						Scheme: "https",
+						Host: "deno.land",
+						Path: fmt.Sprintf("x/%s@%s%s", mod.Name, v, file.Path),
+					}
+					info, err := denoinfo.ExecInfo(u)
+					if err != nil {
+						log.Println(fmt.Errorf("failed to run deno exec on path %s: %s", u.String(), err))
+						// TODO(wperron) find a way to represent broken dependencies in tree
+						continue
+					}
+					log.Println(info)
+				}
+			}
 		}
 		wg.Done()
 	}(&wg)
