@@ -3,11 +3,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/dgraph-io/dgo"
-	"github.com/dgraph-io/dgo/protos/api"
+	dgo "github.com/dgraph-io/dgo/v2"
+	"github.com/dgraph-io/dgo/v2/protos/api"
 	"github.com/wperron/depgraph/pkg/denoapi"
 	"github.com/wperron/depgraph/pkg/denoinfo"
+	"github.com/wperron/depgraph/pkg/models"
 	"google.golang.org/grpc"
 	"log"
 	"net/url"
@@ -54,24 +56,9 @@ func main() {
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 	go func(wg *sync.WaitGroup) {
-		for mod := range modules {
-			for v, entrypoints := range mod.Versions {
-				for _, file := range entrypoints {
-					u := url.URL{
-						Scheme: "https",
-						Host: "deno.land",
-						Path: fmt.Sprintf("x/%s@%s%s", mod.Name, v, file.Path),
-					}
-					info, err := denoinfo.ExecInfo(u)
-					if err != nil {
-						log.Println(fmt.Errorf("failed to run deno exec on path %s: %s", u.String(), err))
-						// TODO(wperron) find a way to represent broken dependencies in tree
-						continue
-					}
-					log.Println(info)
-				}
-			}
-		}
+		infos := IterateModuleInfo(modules)
+		wg.Add(1)
+		go InsertModules(ctx, wg, infos)
 		wg.Done()
 	}(&wg)
 
@@ -104,7 +91,6 @@ func InitSchema(ctx context.Context) error {
 			type File {
 				specifier
 				depends_on
-				dependent_of
 			}
 			name: string @index(term, fulltext, trigram) .
 			description: string @index(term, fulltext, trigram) .
@@ -113,9 +99,74 @@ func InitSchema(ctx context.Context) error {
 			module_version: string @index(term, fulltext, trigram) .
 			README: string @index(term, fulltext, trigram) .
 			file_specifier: [uid] .
-			specifier: string .
+			specifier: string @index(term, fulltext, trigram) .
 			depends_on: [uid] @reverse .
-			dependent_of: [uid] @reverse .
 		`,
 	})
+}
+
+func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan denoinfo.DenoInfo) {
+	count := 0
+	for mod := range mods {
+		txn := client.NewTxn()
+		defer txn.Discard(ctx)
+		for k, f := range mod.Files {
+			deps := make([]models.File, len(f.Deps))
+			for _, d := range f.Deps {
+				deps = append(deps, models.File{Uid: fmt.Sprintf("_:%s", d)})
+			}
+			file := models.File{
+				Uid:       fmt.Sprintf("_:%s", k),
+				Specifier: k,
+				DependsOn: deps,
+				DType:     []string{"File"},
+			}
+			bytes, err := json.Marshal(file)
+			if err != nil {
+				log.Println(fmt.Errorf("failed to marshal file entry: %s", err))
+			}
+
+			mut := api.Mutation{}
+			mut.SetJson = bytes
+			_, err = txn.Mutate(ctx, &mut)
+			if err != nil {
+				log.Println(fmt.Errorf("failed to run mutation for file %s: %s", k, err))
+			}
+			count++
+		}
+
+		err := txn.Commit(ctx)
+		if err != nil {
+			log.Fatalf("failed to commit transaction: %s\n", err)
+		}
+		log.Printf("transaction completed, %d mutations completed\n", count)
+	}
+
+	wg.Done()
+}
+
+func IterateModuleInfo(mods chan denoapi.Module) chan denoinfo.DenoInfo {
+	out := make(chan denoinfo.DenoInfo)
+	go func() {
+		for mod := range mods {
+			for v, entrypoints := range mod.Versions {
+				for _, file := range entrypoints {
+					u := url.URL{
+						Scheme: "https",
+						Host:   "deno.land",
+						Path:   fmt.Sprintf("x/%s@%s%s", mod.Name, v, file.Path),
+					}
+					info, err := denoinfo.ExecInfo(u)
+					if err != nil {
+						log.Println(fmt.Errorf("failed to run deno exec on path %s: %s", u.String(), err))
+						// TODO(wperron) find a way to represent broken dependencies in tree
+						continue
+					}
+					out <- info
+				}
+			}
+		}
+		close(out)
+	}()
+	return out
 }
