@@ -107,16 +107,32 @@ func InitSchema(ctx context.Context) error {
 
 func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan denoinfo.DenoInfo) {
 	count := 0
+	all := make(map[string]string)
 	for mod := range mods {
 		txn := client.NewTxn()
 		defer txn.Discard(ctx)
 		for k, f := range mod.Files {
+			// guard clause, exit early
+			if len(all) > 1000000 {
+				return
+			}
+
 			deps := make([]models.File, len(f.Deps))
 			for _, d := range f.Deps {
-				deps = append(deps, models.File{Uid: fmt.Sprintf("_:%s", d)})
+				uid := fmt.Sprintf("_:%s", d)
+				if u, ok := all[d]; ok {
+					uid = u
+				}
+				deps = append(deps, models.File{Uid: uid})
 			}
+
+			uid := fmt.Sprintf("_:%s", k)
+			if u, ok := all[k]; ok {
+				uid = u
+			}
+
 			file := models.File{
-				Uid:       fmt.Sprintf("_:%s", k),
+				Uid:       uid,
 				Specifier: k,
 				DependsOn: deps,
 				DType:     []string{"File"},
@@ -128,10 +144,12 @@ func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan denoinfo.D
 
 			mut := api.Mutation{}
 			mut.SetJson = bytes
-			_, err = txn.Mutate(ctx, &mut)
+			resp, err := txn.Mutate(ctx, &mut)
 			if err != nil {
 				log.Println(fmt.Errorf("failed to run mutation for file %s: %s", k, err))
 			}
+
+			all = merge(all, resp.Uids)
 			count++
 		}
 
@@ -169,4 +187,16 @@ func IterateModuleInfo(mods chan denoapi.Module) chan denoinfo.DenoInfo {
 		close(out)
 	}()
 	return out
+}
+
+func merge(maps ...map[string]string) (out map[string]string) {
+	out = make(map[string]string)
+	for _, m := range maps {
+		for k, v := range m {
+			if _, ok := out[k]; !ok {
+				out[k] = v
+			}
+		}
+	}
+	return
 }
