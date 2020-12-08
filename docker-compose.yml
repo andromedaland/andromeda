@@ -39,3 +39,7 @@ services:
       - 9090:9090
     volumes:
       - ./prom:/etc/prometheus
+  grafana:
+    image: grafana/grafana:7.3.4
+    ports:
+      - 3000:3000
