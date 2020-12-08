@@ -33,3 +33,9 @@ services:
     ports:
       - 8000:8000
     command: dgraph-ratel
+  prometheus:
+    image: prom/prometheus:v2.23.0
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prom:/etc/prometheus
