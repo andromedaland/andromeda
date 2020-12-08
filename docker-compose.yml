@@ -45,3 +45,5 @@ services:
       - 3000:3000
     volumes:
       - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml
+      - ./grafana/dashboard_dgraph.json:/etc/dashboards/dgraph.json
