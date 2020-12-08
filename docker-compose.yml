@@ -43,3 +43,5 @@ services:
     image: grafana/grafana:7.3.4
     ports:
       - 3000:3000
+    volumes:
+      - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources.yaml
