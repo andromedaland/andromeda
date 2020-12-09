@@ -10,7 +10,7 @@ import (
 	"os"
 	"sync"
 
-	dgo "github.com/dgraph-io/dgo/v2"
+	"github.com/dgraph-io/dgo/v2"
 	"github.com/dgraph-io/dgo/v2/protos/api"
 	"github.com/wperron/depgraph/deno"
 	"google.golang.org/grpc"
