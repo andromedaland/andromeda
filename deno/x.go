@@ -1,5 +1,5 @@
 // Copyright 2020 William Perron. All rights reserved. MIT License.
-package denoapi
+package deno
 
 import (
 	"encoding/json"
@@ -87,7 +87,7 @@ func (c *Client) IterateModules() (chan Module, chan error) {
 		wg := sync.WaitGroup{}
 		for _, mod := range list {
 			i++
-			if i > 10 {
+			if i > 100 {
 				break
 			}
 			wg.Add(1)

@@ -1,5 +1,5 @@
 // Copyright 2020 William Perron. All rights reserved. MIT License.
-package denoapi
+package deno
 
 import "testing"
 

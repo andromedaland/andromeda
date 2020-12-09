@@ -5,19 +5,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	dgo "github.com/dgraph-io/dgo/v2"
-	"github.com/dgraph-io/dgo/v2/protos/api"
-	"github.com/wperron/depgraph/pkg/denoapi"
-	"github.com/wperron/depgraph/pkg/denoinfo"
-	"github.com/wperron/depgraph/pkg/models"
-	"google.golang.org/grpc"
 	"log"
 	"net/url"
 	"os"
 	"sync"
+
+	dgo "github.com/dgraph-io/dgo/v2"
+	"github.com/dgraph-io/dgo/v2/protos/api"
+	"github.com/wperron/depgraph/deno"
+	"google.golang.org/grpc"
 )
 
 var client *dgo.Dgraph
+
+type File struct {
+	Uid       string   `json:"uid,omitempty"`
+	Specifier string   `json:"specifier,omitempty"`
+	DependsOn []File   `json:"depends_on,omitempty"`
+	DType     []string `json:"dgraph.type,omitempty"`
+}
 
 func init() {
 	log.Println("start init.")
@@ -50,7 +56,7 @@ func main() {
 
 	log.Println("Successfully initialized schema on startup.")
 
-	denoClient := denoapi.NewClient()
+	denoClient := deno.NewClient()
 	modules, errs := denoClient.IterateModules()
 
 	wg := sync.WaitGroup{}
@@ -105,7 +111,7 @@ func InitSchema(ctx context.Context) error {
 	})
 }
 
-func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan denoinfo.DenoInfo) {
+func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan deno.DenoInfo) {
 	count := 0
 	all := make(map[string]string)
 	for mod := range mods {
@@ -114,16 +120,19 @@ func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan denoinfo.D
 		for k, f := range mod.Files {
 			// guard clause, exit early
 			if len(all) > 1000000 {
+				log.Println("guard clause reached, exiting early")
+				_ = txn.Commit(ctx)
+				wg.Done()
 				return
 			}
 
-			deps := make([]models.File, len(f.Deps))
+			deps := make([]File, len(f.Deps))
 			for _, d := range f.Deps {
 				uid := fmt.Sprintf("_:%s", d)
 				if u, ok := all[d]; ok {
 					uid = u
 				}
-				deps = append(deps, models.File{Uid: uid})
+				deps = append(deps, File{Uid: uid})
 			}
 
 			uid := fmt.Sprintf("_:%s", k)
@@ -131,7 +140,7 @@ func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan denoinfo.D
 				uid = u
 			}
 
-			file := models.File{
+			file := File{
 				Uid:       uid,
 				Specifier: k,
 				DependsOn: deps,
@@ -163,8 +172,8 @@ func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan denoinfo.D
 	wg.Done()
 }
 
-func IterateModuleInfo(mods chan denoapi.Module) chan denoinfo.DenoInfo {
-	out := make(chan denoinfo.DenoInfo)
+func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {
+	out := make(chan deno.DenoInfo)
 	go func() {
 		for mod := range mods {
 			for v, entrypoints := range mod.Versions {
@@ -174,7 +183,7 @@ func IterateModuleInfo(mods chan denoapi.Module) chan denoinfo.DenoInfo {
 						Host:   "deno.land",
 						Path:   fmt.Sprintf("x/%s@%s%s", mod.Name, v, file.Path),
 					}
-					info, err := denoinfo.ExecInfo(u)
+					info, err := deno.ExecInfo(u)
 					if err != nil {
 						log.Println(fmt.Errorf("failed to run deno exec on path %s: %s", u.String(), err))
 						// TODO(wperron) find a way to represent broken dependencies in tree
