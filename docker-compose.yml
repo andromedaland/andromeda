@@ -35,12 +35,14 @@ services:
     command: dgraph-ratel
   prometheus:
     image: prom/prometheus:v2.23.0
+    network_mode: host
     ports:
       - 9090:9090
     volumes:
       - ./prom:/etc/prometheus
   grafana:
     image: grafana/grafana:7.3.4
+    network_mode: host
     ports:
       - 3000:3000
     volumes:

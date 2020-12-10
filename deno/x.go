@@ -6,27 +6,27 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"path/filepath"
 	"sync"
-	"time"
 )
 import "net/url"
 
 const CDN_HOST = "cdn.deno.land"
 const API_HOST = "api.deno.land"
 
+type DenoLandCrawler interface {
+	IterateModules() (chan Module, chan error)
+}
+
+func NewDenoLandInstrumentedCrawler() DenoLandCrawler {
+	c := NewInstrumentedCrawler()
+	return c.(DenoLandCrawler)
+}
+
 type ApiResponse struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data"`
-}
-
-type Client struct {
-	Transport    *http.Client
-	ThrottleRate int // minimal interval wait between requests
-	mut          sync.Mutex
-	last         time.Time
 }
 
 type Module struct {
@@ -52,25 +52,7 @@ type directoryListing struct {
 	Type string `json:"type"`
 }
 
-func NewClient() Client {
-	return Client{
-		Transport:    http.DefaultClient,
-		ThrottleRate: 1,
-	}
-}
-
-func (c *Client) doRequest(req *http.Request) (*http.Response, error) {
-	c.mut.Lock()
-	defer c.mut.Unlock()
-
-	time.Sleep(time.Until(c.last.Add(time.Duration(c.ThrottleRate) * time.Second)))
-	c.last = time.Now()
-	log.Printf("request %s\n", req.URL.String())
-	req.Header.Set("User-Agent", "Wperron/Depgraph-v0.1")
-	return c.Transport.Do(req)
-}
-
-func (c *Client) IterateModules() (chan Module, chan error) {
+func (c *crawler) IterateModules() (chan Module, chan error) {
 	out := make(chan Module)
 	errs := make(chan error)
 
@@ -127,7 +109,7 @@ func (c *Client) IterateModules() (chan Module, chan error) {
 	return out, errs
 }
 
-func (c *Client) listAllModules() (simpleModuleList, error) {
+func (c *crawler) listAllModules() (simpleModuleList, error) {
 	u := url.URL{
 		Scheme:   "https",
 		Host:     API_HOST,
@@ -136,7 +118,7 @@ func (c *Client) listAllModules() (simpleModuleList, error) {
 	}
 	req, _ := http.NewRequest("GET", u.String(), nil)
 
-	resp, err := c.doRequest(req)
+	resp, err := c.DoRequest(req)
 	if err != nil {
 		return simpleModuleList{}, errors.Errorf("failed to get simple list of modules: %s", err)
 	}
@@ -152,7 +134,7 @@ func (c *Client) listAllModules() (simpleModuleList, error) {
 	return moduleList, nil
 }
 
-func (c *Client) listModuleVersions(mod string) (versions, error) {
+func (c *crawler) listModuleVersions(mod string) (versions, error) {
 	u := url.URL{
 		Scheme: "https",
 		Host:   CDN_HOST,
@@ -160,7 +142,7 @@ func (c *Client) listModuleVersions(mod string) (versions, error) {
 	}
 	req, _ := http.NewRequest("GET", u.String(), nil)
 
-	resp, err := c.doRequest(req)
+	resp, err := c.DoRequest(req)
 	if err != nil {
 		return versions{}, errors.Errorf("failed to get versions for module %s: %s\n", mod, err)
 	}
@@ -176,7 +158,7 @@ func (c *Client) listModuleVersions(mod string) (versions, error) {
 	return ver, nil
 }
 
-func (c *Client) getModuleVersionDirectoryListing(mod, version string) ([]directoryListing, error) {
+func (c *crawler) getModuleVersionDirectoryListing(mod, version string) ([]directoryListing, error) {
 	u := url.URL{
 		Scheme: "https",
 		Host:   CDN_HOST,
@@ -184,7 +166,7 @@ func (c *Client) getModuleVersionDirectoryListing(mod, version string) ([]direct
 	}
 	req, _ := http.NewRequest("GET", u.String(), nil)
 
-	resp, err := c.doRequest(req)
+	resp, err := c.DoRequest(req)
 	if err != nil {
 		return []directoryListing{}, errors.Errorf("failed to get directory listing for %s@%s: %s", mod, version, err)
 	}

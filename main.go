@@ -6,17 +6,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"sync"
 
 	"github.com/dgraph-io/dgo/v2"
 	"github.com/dgraph-io/dgo/v2/protos/api"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/wperron/depgraph/deno"
 	"google.golang.org/grpc"
 )
 
 var client *dgo.Dgraph
+var (
+	filesInMap = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "crawler",
+			Name: "files_in_map",
+			Help: "total number of files tracked by the crawler",
+		},
+	)
+)
 
 type File struct {
 	Uid       string   `json:"uid,omitempty"`
@@ -27,6 +39,10 @@ type File struct {
 
 func init() {
 	log.Println("start init.")
+
+	log.Println("registering prometheus metrics")
+	prometheus.MustRegister(filesInMap)
+
 	// TODO(wperron): parameterize alpha URL
 	log.Println("connecting to the dgraph cluster")
 	d, err := grpc.Dial("localhost:9080", grpc.WithInsecure())
@@ -49,6 +65,15 @@ func main() {
 	log.Println("start.")
 	ctx := context.Background()
 
+	http.Handle("/metrics", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+		},
+	))
+
+	go http.ListenAndServe(":9093", nil)
+
 	err := InitSchema(ctx)
 	if err != nil {
 		log.Fatalf("failed to initialize schema: %s\n", err)
@@ -56,8 +81,8 @@ func main() {
 
 	log.Println("Successfully initialized schema on startup.")
 
-	denoClient := deno.NewClient()
-	modules, errs := denoClient.IterateModules()
+	crawler := deno.NewDenoLandInstrumentedCrawler()
+	modules, errs := crawler.IterateModules()
 
 	wg := sync.WaitGroup{}
 	wg.Add(2)
@@ -159,6 +184,7 @@ func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan deno.DenoI
 			}
 
 			all = merge(all, resp.Uids)
+			filesInMap.Set(float64(len(all)))
 			count++
 		}
 

@@ -4,7 +4,13 @@ scrape_configs:
     scrape_interval: "2s"
     static_configs:
       - targets:
-          - zero:6080     # For Dgraph zero, 6080 is the http endpoint exposing metrics.
-          - alpha:8080    # For Dgraph alpha, 8080 is the http endpoint exposing metrics.
-          - alpha:8080
-          - alpha:8080
+          - localhost:6080     # For Dgraph zero, 6080 is the http endpoint exposing metrics.
+          - localhost:8080    # For Dgraph alpha, 8080 is the http endpoint exposing metrics.
+          - localhost:8080
+          - localhost:8080
+  - job_name: "depgraph_crawler"
+    metrics_path: "/metrics"
+    scrape_interval: "2s"
+    static_configs:
+      - targets:
+        - "localhost:9093"
