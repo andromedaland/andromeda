@@ -23,7 +23,6 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "Prometheus",
-      "description": "",
       "fieldConfig": {
         "defaults": {
           "custom": {}
@@ -66,7 +65,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "go_goroutines{job=\"dgraph\"}",
+          "expr": "rate(client_api_requests_total[1m])",
           "interval": "",
           "legendFormat": "",
           "queryType": "randomWalk",
@@ -77,7 +76,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Concurrent Goroutines",
+      "title": "Api Request Rate",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -93,7 +92,6 @@
       },
       "yaxes": [
         {
-          "$$hashKey": "object:408",
           "format": "short",
           "label": null,
           "logBase": 1,
@@ -102,7 +100,6 @@
           "show": true
         },
         {
-          "$$hashKey": "object:409",
           "format": "short",
           "label": null,
           "logBase": 1,
@@ -164,30 +161,18 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "dgraph_memory_inuse_bytes",
+          "expr": "rate(request_duration_seconds_sum[1m])",
           "interval": "",
           "legendFormat": "",
           "queryType": "randomWalk",
           "refId": "A"
-        },
-        {
-          "expr": "dgraph_memory_idle_bytes",
-          "interval": "",
-          "legendFormat": "",
-          "refId": "B"
-        },
-        {
-          "expr": "dgraph_memory_proc_bytes",
-          "interval": "",
-          "legendFormat": "",
-          "refId": "C"
         }
       ],
       "thresholds": [],
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Memory Usage",
+      "title": "Http Latencies",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -268,18 +253,18 @@
       "renderer": "flot",
       "seriesOverrides": [],
       "spaceLength": 10,
-      "stack": false,
-      "steppedLine": false,
+      "stack": true,
+      "steppedLine": true,
       "targets": [
         {
-          "expr": "rate(badger_v2_read_bytes{job=\"dgraph\"}[1m])",
+          "expr": "rate(dns_duration_seconds_sum[1m])",
           "interval": "",
           "legendFormat": "",
           "queryType": "randomWalk",
           "refId": "A"
         },
         {
-          "expr": "rate(badger_v2_written_bytes{job=\"dgraph\"}[1m])",
+          "expr": "rate(tls_duration_seconds_sum[1m])",
           "interval": "",
           "legendFormat": "",
           "refId": "B"
@@ -289,7 +274,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Disk Usage - Bytes",
+      "title": "DNS & TLS latencies",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -374,24 +359,18 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(badger_v2_disk_reads_total{job=\"dgraph\"}[1m])",
+          "expr": "go_goroutines{job=\"depgraph_crawler\"}",
           "interval": "",
           "legendFormat": "",
           "queryType": "randomWalk",
           "refId": "A"
-        },
-        {
-          "expr": "rate(badger_v2_disk_writes_total{job=\"dgraph\"}[1m])",
-          "interval": "",
-          "legendFormat": "",
-          "refId": "B"
         }
       ],
       "thresholds": [],
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Disk Ops",
+      "title": "Goroutines",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -449,7 +428,7 @@
         "y": 16
       },
       "hiddenSeries": false,
-      "id": 10,
+      "id": 14,
       "legend": {
         "avg": false,
         "current": false,
@@ -476,16 +455,16 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(dgraph_num_queries_total{method=\"Server.Mutate\"}[1m])",
+          "expr": "rate(process_resident_memory_bytes{job=\"depgraph_crawler\"}[1m])",
           "interval": "",
-          "legendFormat": "Mutations",
+          "legendFormat": "resident memory",
           "queryType": "randomWalk",
           "refId": "A"
         },
         {
-          "expr": "rate(dgraph_num_queries_total{method=\"Server.Query\"}[1m])",
+          "expr": "rate(process_virtual_memory_bytes{job=\"depgraph_crawler\"}[1m])",
           "interval": "",
-          "legendFormat": "Queries",
+          "legendFormat": "virtual memory",
           "refId": "B"
         }
       ],
@@ -493,7 +472,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Queries & Mutations",
+      "title": "Memory Usage",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -509,7 +488,7 @@
       },
       "yaxes": [
         {
-          "format": "short",
+          "format": "bytes",
           "label": null,
           "logBase": 1,
           "max": null,
@@ -529,8 +508,317 @@
         "align": false,
         "alignLevel": null
       }
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "hiddenSeries": false,
+      "id": 12,
+      "legend": {
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.4",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "go_memstats_heap_alloc_bytes{job=\"depgraph_crawler\"}",
+          "interval": "",
+          "legendFormat": "",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_idle_bytes{job=\"depgraph_crawler\"}",
+          "interval": "",
+          "legendFormat": "",
+          "refId": "B"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes{job=\"depgraph_crawler\"}",
+          "interval": "",
+          "legendFormat": "",
+          "refId": "C"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Heap Allocations",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "bytes",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "hiddenSeries": false,
+      "id": 16,
+      "legend": {
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.4",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "go_memstats_stack_inuse_bytes{job=\"depgraph_crawler\"}",
+          "interval": "",
+          "legendFormat": "",
+          "queryType": "randomWalk",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_stack_sys_bytes{job=\"depgraph_crawler\"}",
+          "interval": "",
+          "legendFormat": "",
+          "refId": "B"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Stack Allocation",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "bytes",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "hiddenSeries": false,
+      "id": 18,
+      "legend": {
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.4",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total{job=\"depgraph_crawler\"}[1m])",
+          "interval": "",
+          "legendFormat": "",
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "CPU Usage",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "$$hashKey": "object:128",
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "$$hashKey": "object:129",
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
     }
   ],
+  "refresh": "5s",
   "schemaVersion": 26,
   "style": "dark",
   "tags": [],
@@ -543,7 +831,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Dgraph Overview",
-  "uid": "WAw3oGJMz",
+  "title": "Crawler Overview",
+  "uid": "yVCGMvJGz",
   "version": 1
 }
