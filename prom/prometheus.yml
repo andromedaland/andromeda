@@ -1,4 +1,10 @@
 scrape_configs:
+  - job_name: "prometheus"
+    metrics_path: "/metrics"
+    scrape_interval: "2s"
+    static_configs:
+      - targets:
+        - "localhost:9090"
   - job_name: "dgraph"
     metrics_path: "/debug/prometheus_metrics"
     scrape_interval: "2s"
