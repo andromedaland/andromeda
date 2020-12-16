@@ -5,18 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"net/http"
-	"net/url"
-	"os"
-	"sync"
-
 	"github.com/dgraph-io/dgo/v2"
 	"github.com/dgraph-io/dgo/v2/protos/api"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/wperron/depgraph/deno"
 	"google.golang.org/grpc"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
 )
 
 var client *dgo.Dgraph
@@ -35,6 +33,21 @@ type File struct {
 	Specifier string   `json:"specifier,omitempty"`
 	DependsOn []File   `json:"depends_on,omitempty"`
 	DType     []string `json:"dgraph.type,omitempty"`
+}
+
+type Module struct {
+	Uid         string          `json:"uid,omitempty"`
+	Name        string          `json:"name,omitempty"`
+	Stars       int             `json:"stars,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Version     []ModuleVersion `json:"version,omitempty"`
+	DType       []string        `json:"dgraph.type,omitempty"`
+}
+
+type ModuleVersion struct {
+	Uid           string `json:"uid,omitempty"`
+	ModuleVersion string `json:"module_version,omitempty"`
+	README        string `json:"README,omitempty"`
 }
 
 func init() {
@@ -78,34 +91,29 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize schema: %s\n", err)
 	}
-
 	log.Println("Successfully initialized schema on startup.")
 
 	crawler := deno.NewDenoLandInstrumentedCrawler()
 	modules, errs := crawler.IterateModules()
+	inserted := InsertModules(ctx, modules)
+	infos := IterateModuleInfo(inserted)
+	done := InsertFiles(ctx, infos)
 
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go func(wg *sync.WaitGroup) {
-		infos := IterateModuleInfo(modules)
-		wg.Add(1)
-		go InsertModules(ctx, wg, infos)
-		wg.Done()
-	}(&wg)
-
-	go func(wg *sync.WaitGroup) {
-		for err := range errs {
-			log.Println(fmt.Errorf("error while consuming modules: %s", err))
+	go func() {
+		for e := range errs {
+			log.Printf("error: %s\n", e)
 		}
-		wg.Done()
-	}(&wg)
+	}()
 
-	wg.Wait()
+	<-done
 	log.Println("done.")
 	os.Exit(0)
 }
 
 func InitSchema(ctx context.Context) error {
+	// TODO(wperron) review schema, I don't like the current Module and
+	//   ModuleVersion types, feels like theres a more 'graph-y' way to express
+	//   these types.
 	return client.Alter(ctx, &api.Operation{
 		Schema: `
 			type Module {
@@ -136,66 +144,112 @@ func InitSchema(ctx context.Context) error {
 	})
 }
 
-func InsertModules(ctx context.Context, wg *sync.WaitGroup, mods chan deno.DenoInfo) {
-	count := 0
-	all := make(map[string]string)
-	for mod := range mods {
-		txn := client.NewTxn()
-		defer txn.Discard(ctx)
-		for k, f := range mod.Files {
-			// guard clause, exit early
-			if len(all) > 1000000 {
-				log.Println("guard clause reached, exiting early")
-				_ = txn.Commit(ctx)
-				wg.Done()
-				return
-			}
-
-			deps := make([]File, len(f.Deps))
-			for _, d := range f.Deps {
-				uid := fmt.Sprintf("_:%s", d)
-				if u, ok := all[d]; ok {
-					uid = u
-				}
-				deps = append(deps, File{Uid: uid})
-			}
-
-			uid := fmt.Sprintf("_:%s", k)
-			if u, ok := all[k]; ok {
+// InsertModules is a passthrough function that makes sure the Module and
+// ModuleVersion exist in the graph before inserting the Version's files.
+func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module {
+	out := make(chan deno.Module)
+	go func() {
+		all := make(map[string]string)
+		for mod := range mods {
+			txn := client.NewTxn()
+			uid := fmt.Sprintf("_:%s", mod.Name)
+			if u, ok := all[mod.Name]; ok {
 				uid = u
 			}
 
-			file := File{
+			m := Module{
 				Uid:       uid,
-				Specifier: k,
-				DependsOn: deps,
-				DType:     []string{"File"},
+				Name: mod.Name,
+				Stars: 0,
+				DType:     []string{"Module"},
 			}
-			bytes, err := json.Marshal(file)
+			bytes, err := json.Marshal(m)
 			if err != nil {
-				log.Println(fmt.Errorf("failed to marshal file entry: %s", err))
+				log.Println(fmt.Errorf("failed to marshal module entry: %s", err))
 			}
 
 			mut := api.Mutation{}
 			mut.SetJson = bytes
 			resp, err := txn.Mutate(ctx, &mut)
 			if err != nil {
-				log.Println(fmt.Errorf("failed to run mutation for file %s: %s", k, err))
+				log.Println(fmt.Errorf("failed to run mutation for file %s: %s", mod.Name, err))
 			}
 
 			all = merge(all, resp.Uids)
-			filesInMap.Set(float64(len(all)))
-			count++
+			out <- mod
+		}
+		close(out)
+	}()
+
+	return out
+}
+
+func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
+	done := make(chan bool)
+	go func() {
+		count := 0
+		all := make(map[string]string)
+		for mod := range mods {
+			txn := client.NewTxn()
+			defer txn.Discard(ctx)
+			for k, f := range mod.Files {
+				// guard clause, exit early
+				if len(all) > 1000000 {
+					log.Println("guard clause reached, exiting early")
+					_ = txn.Commit(ctx)
+					return
+				}
+
+				deps := make([]File, len(f.Deps))
+				for _, d := range f.Deps {
+					uid := fmt.Sprintf("_:%s", d)
+					if u, ok := all[d]; ok {
+						uid = u
+					}
+					deps = append(deps, File{Uid: uid})
+				}
+
+				uid := fmt.Sprintf("_:%s", k)
+				if u, ok := all[k]; ok {
+					uid = u
+				}
+
+				file := File{
+					Uid:       uid,
+					Specifier: k,
+					DependsOn: deps,
+					DType:     []string{"File"},
+				}
+				bytes, err := json.Marshal(file)
+				if err != nil {
+					log.Println(fmt.Errorf("failed to marshal file entry: %s", err))
+				}
+
+				mut := api.Mutation{}
+				mut.SetJson = bytes
+				resp, err := txn.Mutate(ctx, &mut)
+				if err != nil {
+					log.Println(fmt.Errorf("failed to run mutation for file %s: %s", k, err))
+				}
+
+				all = merge(all, resp.Uids)
+				filesInMap.Set(float64(len(all)))
+				count++
+			}
+
+			err := txn.Commit(ctx)
+			if err != nil {
+				log.Fatalf("failed to commit transaction: %s\n", err)
+			}
+			log.Printf("transaction completed, %d mutations completed\n", count)
 		}
 
-		err := txn.Commit(ctx)
-		if err != nil {
-			log.Fatalf("failed to commit transaction: %s\n", err)
-		}
-		log.Printf("transaction completed, %d mutations completed\n", count)
-	}
+		log.Println("finished inserting all files")
+		done <- true
+		close(done)
+	}()
 
-	wg.Done()
+	return done
 }
 
 func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {

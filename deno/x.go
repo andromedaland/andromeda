@@ -65,13 +65,10 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 			return
 		}
 
-		i := 0
+		// TODO(wperron): remove slicing before v1
+		list = list[:100]
 		wg := sync.WaitGroup{}
 		for _, mod := range list {
-			i++
-			if i > 100 {
-				break
-			}
 			wg.Add(1)
 
 			go func(mod string, wg *sync.WaitGroup) {
