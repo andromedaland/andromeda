@@ -14,7 +14,7 @@ scrape_configs:
           - localhost:8080    # For Dgraph alpha, 8080 is the http endpoint exposing metrics.
           - localhost:8080
           - localhost:8080
-  - job_name: "depgraph_crawler"
+  - job_name: "andromeda"
     metrics_path: "/metrics"
     scrape_interval: "2s"
     static_configs:
