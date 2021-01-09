@@ -1,4 +1,4 @@
-// Copyright 2020 William Perron. All rights reserved. MIT License.
+// Copyright 2020-2021 William Perron. All rights reserved. MIT License.
 package deno
 
 import (
