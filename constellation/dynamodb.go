@@ -127,6 +127,7 @@ func GetDependencies(deps []string) ([]Entry, error) {
 
 	var entries []Entry
 	if err := dynamodbattribute.UnmarshalListOfMaps(items, &entries); err != nil {
-		return []Entry{}, nil
+		return []Entry{}, err
 	}
+	return entries, nil
 }
