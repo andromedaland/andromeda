@@ -359,7 +359,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "go_goroutines{job=\"depgraph_crawler\"}",
+          "expr": "go_goroutines{job=\"andromeda\"}",
           "interval": "",
           "legendFormat": "",
           "queryType": "randomWalk",
@@ -386,6 +386,7 @@
       },
       "yaxes": [
         {
+          "$$hashKey": "object:85",
           "format": "short",
           "label": null,
           "logBase": 1,
@@ -394,6 +395,7 @@
           "show": true
         },
         {
+          "$$hashKey": "object:86",
           "format": "short",
           "label": null,
           "logBase": 1,
@@ -455,14 +457,14 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(process_resident_memory_bytes{job=\"depgraph_crawler\"}[1m])",
+          "expr": "rate(process_resident_memory_bytes{job=\"andromeda\"}[1m])",
           "interval": "",
           "legendFormat": "resident memory",
           "queryType": "randomWalk",
           "refId": "A"
         },
         {
-          "expr": "rate(process_virtual_memory_bytes{job=\"depgraph_crawler\"}[1m])",
+          "expr": "rate(process_virtual_memory_bytes{job=\"andromeda\"}[1m])",
           "interval": "",
           "legendFormat": "virtual memory",
           "refId": "B"
@@ -488,6 +490,7 @@
       },
       "yaxes": [
         {
+          "$$hashKey": "object:163",
           "format": "bytes",
           "label": null,
           "logBase": 1,
@@ -496,6 +499,7 @@
           "show": true
         },
         {
+          "$$hashKey": "object:164",
           "format": "short",
           "label": null,
           "logBase": 1,
@@ -557,20 +561,20 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "go_memstats_heap_alloc_bytes{job=\"depgraph_crawler\"}",
+          "expr": "go_memstats_heap_alloc_bytes{job=\"andromeda\"}",
           "interval": "",
           "legendFormat": "",
           "queryType": "randomWalk",
           "refId": "A"
         },
         {
-          "expr": "go_memstats_heap_idle_bytes{job=\"depgraph_crawler\"}",
+          "expr": "go_memstats_heap_idle_bytes{job=\"andromeda\"}",
           "interval": "",
           "legendFormat": "",
           "refId": "B"
         },
         {
-          "expr": "go_memstats_heap_inuse_bytes{job=\"depgraph_crawler\"}",
+          "expr": "go_memstats_heap_inuse_bytes{job=\"andromeda\"}",
           "interval": "",
           "legendFormat": "",
           "refId": "C"
@@ -596,6 +600,7 @@
       },
       "yaxes": [
         {
+          "$$hashKey": "object:241",
           "format": "bytes",
           "label": null,
           "logBase": 1,
@@ -604,6 +609,7 @@
           "show": true
         },
         {
+          "$$hashKey": "object:242",
           "format": "short",
           "label": null,
           "logBase": 1,
@@ -665,14 +671,14 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "go_memstats_stack_inuse_bytes{job=\"depgraph_crawler\"}",
+          "expr": "go_memstats_stack_inuse_bytes{job=\"andromeda\"}",
           "interval": "",
           "legendFormat": "",
           "queryType": "randomWalk",
           "refId": "A"
         },
         {
-          "expr": "go_memstats_stack_sys_bytes{job=\"depgraph_crawler\"}",
+          "expr": "go_memstats_stack_sys_bytes{job=\"andromeda\"}",
           "interval": "",
           "legendFormat": "",
           "refId": "B"
@@ -698,6 +704,7 @@
       },
       "yaxes": [
         {
+          "$$hashKey": "object:319",
           "format": "bytes",
           "label": null,
           "logBase": 1,
@@ -706,6 +713,7 @@
           "show": true
         },
         {
+          "$$hashKey": "object:320",
           "format": "short",
           "label": null,
           "logBase": 1,
@@ -767,7 +775,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(process_cpu_seconds_total{job=\"depgraph_crawler\"}[1m])",
+          "expr": "rate(process_cpu_seconds_total{job=\"andromeda\"}[1m])",
           "interval": "",
           "legendFormat": "",
           "queryType": "randomWalk",
