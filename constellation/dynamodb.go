@@ -42,7 +42,7 @@ func PutEntry(entry Entry) error {
 			},
 		},
 		ReturnConsumedCapacity: aws.String("TOTAL"),
-		ConditionExpression: aws.String("attribute_not_exists(specifier)"),
+		ConditionExpression:    aws.String("attribute_not_exists(specifier)"),
 		TableName:              aws.String(table),
 	})
 
@@ -74,7 +74,7 @@ func GetSpecifierUid(specifier string) ([]Entry, error) {
 			},
 		},
 		ConsistentRead: aws.Bool(true),
-		Select: aws.String("ALL_PROJECTED_ATTRIBUTES"),
+		Select:         aws.String("ALL_PROJECTED_ATTRIBUTES"),
 	})
 
 	if err != nil {
