@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"log"
 )
 
 var svc *dynamodb.DynamoDB
@@ -18,7 +19,7 @@ const (
 
 func init() {
 	sess := session.Must(session.NewSession())
-	svc = dynamodb.New(sess, &aws.Config{Credentials: sess.Config.Credentials})
+	svc = dynamodb.New(sess, &aws.Config{Credentials: sess.Config.Credentials, Region: aws.String("us-east-1")})
 }
 
 type Entry struct {
@@ -33,14 +34,15 @@ func PutEntry(entry Entry) error {
 			"specifier": {
 				S: aws.String(entry.Specifier),
 			},
-			"Module": {
+			"module": {
 				S: aws.String(entry.Module),
 			},
-			"Uid": {
+			"uid": {
 				S: aws.String(entry.Uid),
 			},
 		},
 		ReturnConsumedCapacity: aws.String("TOTAL"),
+		ConditionExpression: aws.String("attribute_not_exists(specifier)"),
 		TableName:              aws.String(table),
 	})
 
@@ -48,19 +50,8 @@ func PutEntry(entry Entry) error {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case dynamodb.ErrCodeConditionalCheckFailedException:
-				fmt.Println(dynamodb.ErrCodeConditionalCheckFailedException, aerr.Error())
-			case dynamodb.ErrCodeProvisionedThroughputExceededException:
-				fmt.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
-			case dynamodb.ErrCodeResourceNotFoundException:
-				fmt.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
-			case dynamodb.ErrCodeItemCollectionSizeLimitExceededException:
-				fmt.Println(dynamodb.ErrCodeItemCollectionSizeLimitExceededException, aerr.Error())
-			case dynamodb.ErrCodeTransactionConflictException:
-				fmt.Println(dynamodb.ErrCodeTransactionConflictException, aerr.Error())
-			case dynamodb.ErrCodeRequestLimitExceeded:
-				fmt.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
-			case dynamodb.ErrCodeInternalServerError:
-				fmt.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
+				log.Printf("%s already exists, nothing to do.", entry.Specifier)
+				return nil
 			default:
 				fmt.Println(aerr.Error())
 			}
@@ -82,6 +73,7 @@ func GetSpecifierUid(specifier string) ([]Entry, error) {
 				S: aws.String(specifier),
 			},
 		},
+		ConsistentRead: aws.Bool(true),
 		Select: aws.String("ALL_PROJECTED_ATTRIBUTES"),
 	})
 
@@ -93,41 +85,5 @@ func GetSpecifierUid(specifier string) ([]Entry, error) {
 		return []Entry{}, nil
 	}
 
-	return entries, nil
-}
-
-func GetDependencies(deps []string) ([]Entry, error) {
-	var keys []map[string]*dynamodb.AttributeValue
-	for _, dep := range deps {
-		keys = append(keys, map[string]*dynamodb.AttributeValue{
-			"specifier": {
-				S: aws.String(dep),
-			},
-		})
-	}
-
-	out, err := svc.BatchGetItem(&dynamodb.BatchGetItemInput{
-		RequestItems: map[string]*dynamodb.KeysAndAttributes{
-			table: {
-				Keys: keys,
-			},
-		},
-	})
-
-	if err != nil {
-		return []Entry{}, err
-	}
-
-	items := make([]map[string]*dynamodb.AttributeValue, len(out.Responses))
-	for _, resp := range out.Responses {
-		for _, item := range resp {
-			items = append(items, item)
-		}
-	}
-
-	var entries []Entry
-	if err := dynamodbattribute.UnmarshalListOfMaps(items, &entries); err != nil {
-		return []Entry{}, err
-	}
 	return entries, nil
 }
