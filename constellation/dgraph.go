@@ -10,6 +10,7 @@ import (
 	"github.com/wperron/depgraph/deno"
 	"google.golang.org/grpc"
 	"log"
+	"strings"
 )
 
 var client *dgo.Dgraph
@@ -47,11 +48,11 @@ func init() {
 	client = dgo.NewDgraphClient(api.NewDgraphClient(d))
 
 	// Drop all data including schema from the dgraph instance. Useful for PoC
-	log.Println("dropping existing data in the dgraph cluster")
-	err = client.Alter(context.Background(), &api.Operation{DropOp: api.Operation_ALL})
-	if err != nil {
-		log.Fatalf("error while cleaning the dgraph instance: %s\n", err)
-	}
+	//log.Println("dropping existing data in the dgraph cluster")
+	//err = client.Alter(context.Background(), &api.Operation{DropOp: api.Operation_ALL})
+	//if err != nil {
+	//	log.Fatalf("error while cleaning the dgraph instance: %s\n", err)
+	//}
 }
 
 func InitSchema(ctx context.Context) error {
@@ -159,12 +160,16 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 			}
 
 			for specifier, uid := range uids {
-				if err := PutEntry(Entry{
-					Specifier: specifier,
-					Module:    mod.Module,
-					Uid:       uid,
-				}); err != nil {
-					log.Fatal(fmt.Errorf("\tfailed to put entry for %s: %s", specifier, err))
+				// TODO(wperron): there's probably a better to filter for only
+				//   the UIDs that were created as part of this mutation
+				if strings.HasPrefix(specifier, "https://") {
+					if err := PutEntry(Item{
+						Specifier: specifier,
+						Module:    mod.ShortName,
+						Uid:       uid,
+					}); err != nil {
+						log.Fatal(fmt.Errorf("\tfailed to put entry for %s: %s", specifier, err))
+					}
 				}
 			}
 		}
@@ -187,15 +192,13 @@ func mutateFile(ctx context.Context, txn *dgo.Txn, specifier string, entry deno.
 		for _, d := range entry.Deps {
 			uid := fmt.Sprintf("_:%s", d)
 
-			entries, err := GetSpecifierUid(d)
+			item, err := GetSpecifierUid(d)
 			if err != nil {
 				log.Fatalf("failed to get specificer %s from DynamoDB: %s\n", d, err)
 			}
-			if len(entries) > 1 {
-				log.Fatalf("expected only one entry for %s, got %d\n", d, len(entries))
-			}
-			if len(entries) > 0 && entries[0].Uid != "" {
-				uid = entries[0].Uid
+
+			if item.Uid != "" {
+				uid = item.Uid
 			} else {
 				// keep track of blank UIDs used in the mutation
 				blanks[d] = uid
@@ -205,18 +208,13 @@ func mutateFile(ctx context.Context, txn *dgo.Txn, specifier string, entry deno.
 	}
 
 	uid := fmt.Sprintf("_:%s", specifier)
-	items, err := GetSpecifierUid(specifier)
+	item, err := GetSpecifierUid(specifier)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if len(items) > 1 {
-		// TODO(wperron): deal with unusual case here
-		log.Printf("\tfound more than one item for %s\n", specifier)
-	}
-
-	if len(items) > 0 && items[0].Uid != "" {
-		uid = items[0].Uid
+	if item.Uid != "" {
+		uid = item.Uid
 	} else {
 		// The item doesn't exist in DynamoDB or in DGraph yet
 		blanks[specifier] = uid

@@ -8,12 +8,14 @@ import (
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 import "net/url"
 
 const CDN_HOST = "cdn.deno.land"
 const API_HOST = "api.deno.land"
+const PREFIX_LENGTH = len("https://deno.land/x/")
 
 type DenoLandCrawler interface {
 	IterateModules() (chan Module, chan error)
@@ -50,6 +52,33 @@ type directoryListing struct {
 	Path string `json:"path"`
 	Size int    `json:"size"`
 	Type string `json:"type"`
+}
+
+// NameFromUrl returns the name of a module from an absolute URL. useful for
+// finding which module a file belongs to.
+//
+// For deno.land/x, the module name is always right after '/x/', and either ends
+// at the '@' for versioned imports or at the next '/' for unversioned imports.
+// Since most imports from deno.land/x use the versioned format, that's the
+// option that is tried first, if it fails, the unversioned kind is used.
+func (m *Module) NameFromUrl(u string) string {
+	if m == nil {
+		return ""
+	}
+
+	if !strings.HasPrefix(u, "https://deno.land/x/") {
+		return ""
+	}
+
+	var s string
+	to := strings.IndexRune(u, '@')
+	if to == -1 {
+		to = strings.IndexRune(s[PREFIX_LENGTH:], '/')
+	}
+	if to == -1 {
+		return ""
+	}
+	return u[PREFIX_LENGTH:to]
 }
 
 func (c *crawler) IterateModules() (chan Module, chan error) {

@@ -67,6 +67,11 @@ func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {
 						// TODO(wperron) find a way to represent broken dependencies in tree
 						continue
 					}
+					shortname := mod.NameFromUrl(info.Module)
+					if shortname == "" {
+						shortname = "UNKNOWN"
+					}
+					info.ShortName = shortname
 					out <- info
 				}
 			}

@@ -22,23 +22,23 @@ func init() {
 	svc = dynamodb.New(sess, &aws.Config{Credentials: sess.Config.Credentials, Region: aws.String("us-east-1")})
 }
 
-type Entry struct {
+type Item struct {
 	Specifier string `json:"specifier"`
 	Module    string `json:"module"`
 	Uid       string `json:"uid,omitempty"`
 }
 
-func PutEntry(entry Entry) error {
+func PutEntry(item Item) error {
 	_, err := svc.PutItem(&dynamodb.PutItemInput{
 		Item: map[string]*dynamodb.AttributeValue{
 			"specifier": {
-				S: aws.String(entry.Specifier),
+				S: aws.String(item.Specifier),
 			},
 			"module": {
-				S: aws.String(entry.Module),
+				S: aws.String(item.Module),
 			},
 			"uid": {
-				S: aws.String(entry.Uid),
+				S: aws.String(item.Uid),
 			},
 		},
 		ReturnConsumedCapacity: aws.String("TOTAL"),
@@ -50,7 +50,7 @@ func PutEntry(entry Entry) error {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case dynamodb.ErrCodeConditionalCheckFailedException:
-				log.Printf("%s already exists, nothing to do.", entry.Specifier)
+				log.Printf("%s already exists, nothing to do.", item.Specifier)
 				return nil
 			default:
 				fmt.Println(aerr.Error())
@@ -63,7 +63,7 @@ func PutEntry(entry Entry) error {
 	return nil
 }
 
-func GetSpecifierUid(specifier string) ([]Entry, error) {
+func GetSpecifierUid(specifier string) (Item, error) {
 	out, err := svc.Query(&dynamodb.QueryInput{
 		TableName:              aws.String(table),
 		IndexName:              aws.String("specifier-uid-index"),
@@ -73,17 +73,22 @@ func GetSpecifierUid(specifier string) ([]Entry, error) {
 				S: aws.String(specifier),
 			},
 		},
-		ConsistentRead: aws.Bool(true),
 		Select:         aws.String("ALL_PROJECTED_ATTRIBUTES"),
 	})
 
 	if err != nil {
-		return []Entry{}, nil
+		return Item{}, err
 	}
-	var entries []Entry
-	if err := dynamodbattribute.UnmarshalListOfMaps(out.Items, &entries); err != nil {
-		return []Entry{}, nil
+	var items []Item
+	if err := dynamodbattribute.UnmarshalListOfMaps(out.Items, &items); err != nil {
+		return Item{}, err
 	}
 
-	return entries, nil
+	if len(items) > 1 {
+		return Item{}, fmt.Errorf("expected only one result for %s, got %d", specifier, len(items))
+	} else if len(items) == 0 {
+		return Item{}, nil
+	}
+
+	return items[0], nil
 }

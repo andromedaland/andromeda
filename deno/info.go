@@ -10,6 +10,7 @@ import (
 type DenoInfo struct {
 	TotalSize int                  `json:"totalSize"`
 	Module    string               `json:"module"`
+	ShortName string               `json:"shortName,omitempty"`
 	Map       *string              `json:"map"`
 	Compiled  *string              `json:"compiled"`
 	DepCount  int                  `json:"depCount"`
