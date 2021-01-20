@@ -50,16 +50,24 @@ func main() {
 	os.Exit(0)
 }
 
+// TODO(wperron): refactor logic specific to deno.land/x to deno/x.go
 func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {
 	out := make(chan deno.DenoInfo)
 	go func() {
 		for mod := range mods {
 			for v, entrypoints := range mod.Versions {
 				for _, file := range entrypoints {
+					var path string
+					if mod.Name == "std" {
+						path = fmt.Sprintf("%s@%s%s", mod.Name, v, file.Path)
+					} else {
+						path = fmt.Sprintf("x/%s@%s%s", mod.Name, v, file.Path)
+					}
+
 					u := url.URL{
 						Scheme: "https",
 						Host:   "deno.land",
-						Path:   fmt.Sprintf("x/%s@%s%s", mod.Name, v, file.Path),
+						Path:   path,
 					}
 					info, err := deno.ExecInfo(u)
 					if err != nil {
@@ -67,11 +75,6 @@ func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {
 						// TODO(wperron) find a way to represent broken dependencies in tree
 						continue
 					}
-					shortname := mod.NameFromUrl(info.Module)
-					if shortname == "" {
-						shortname = "UNKNOWN"
-					}
-					info.ShortName = shortname
 					out <- info
 				}
 			}

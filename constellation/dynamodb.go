@@ -14,7 +14,7 @@ import (
 var svc *dynamodb.DynamoDB
 
 const (
-	table = "andromeda-test-1"
+	table = "andromeda-test-2"
 )
 
 func init() {
@@ -24,7 +24,6 @@ func init() {
 
 type Item struct {
 	Specifier string `json:"specifier"`
-	Module    string `json:"module"`
 	Uid       string `json:"uid,omitempty"`
 }
 
@@ -33,9 +32,6 @@ func PutEntry(item Item) error {
 		Item: map[string]*dynamodb.AttributeValue{
 			"specifier": {
 				S: aws.String(item.Specifier),
-			},
-			"module": {
-				S: aws.String(item.Module),
 			},
 			"uid": {
 				S: aws.String(item.Uid),

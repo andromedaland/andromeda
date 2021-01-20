@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 import "net/url"
@@ -54,33 +53,6 @@ type directoryListing struct {
 	Type string `json:"type"`
 }
 
-// NameFromUrl returns the name of a module from an absolute URL. useful for
-// finding which module a file belongs to.
-//
-// For deno.land/x, the module name is always right after '/x/', and either ends
-// at the '@' for versioned imports or at the next '/' for unversioned imports.
-// Since most imports from deno.land/x use the versioned format, that's the
-// option that is tried first, if it fails, the unversioned kind is used.
-func (m *Module) NameFromUrl(u string) string {
-	if m == nil {
-		return ""
-	}
-
-	if !strings.HasPrefix(u, "https://deno.land/x/") {
-		return ""
-	}
-
-	var s string
-	to := strings.IndexRune(u, '@')
-	if to == -1 {
-		to = strings.IndexRune(s[PREFIX_LENGTH:], '/')
-	}
-	if to == -1 {
-		return ""
-	}
-	return u[PREFIX_LENGTH:to]
-}
-
 func (c *crawler) IterateModules() (chan Module, chan error) {
 	out := make(chan Module)
 	errs := make(chan error)
@@ -100,6 +72,10 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 		for _, mod := range list {
 			wg.Add(1)
 
+			// launching this goroutine floods the runtime with as many goroutines
+			// as there are modules on deno.land/x, which are then resolved one
+			// by one as the process goes on. This isn't necessarily bad (cpu
+			// usage tends to stay low) but should be kept in mind.
 			go func(mod string, wg *sync.WaitGroup) {
 				versions, err := c.listModuleVersions(mod)
 				if err != nil {

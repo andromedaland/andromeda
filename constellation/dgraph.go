@@ -158,6 +158,7 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 			if err != nil {
 				log.Fatalf("failed to commit transaction: %s\n", err)
 			}
+			log.Printf("transaction completed for %s\n", mod.Module)
 
 			for specifier, uid := range uids {
 				// TODO(wperron): there's probably a better to filter for only
@@ -165,7 +166,6 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 				if strings.HasPrefix(specifier, "https://") {
 					if err := PutEntry(Item{
 						Specifier: specifier,
-						Module:    mod.ShortName,
 						Uid:       uid,
 					}); err != nil {
 						log.Fatal(fmt.Errorf("\tfailed to put entry for %s: %s", specifier, err))
