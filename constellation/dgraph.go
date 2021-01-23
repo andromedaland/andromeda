@@ -142,17 +142,24 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 				}
 			}(ctx, txn)
 
-			// map of specifier->uid that were created during the processing of
-			// this module.
-			uids := make(map[string]string)
-
 			for k, f := range mod.Files {
-				res, err := mutateFile(ctx, txn, k, f)
+				uids, err := mutateFile(ctx, txn, k, f)
 				if err != nil {
 					log.Fatalf("failed to run mutation for %s: %s\n", k, err)
 				}
 
-				uids = merge(uids, res)
+				for specifier, uid := range uids {
+					// TODO(wperron): there's probably a better to filter for only
+					//   the UIDs that were created as part of this mutation
+					if strings.HasPrefix(specifier, "https://") {
+						if err := PutEntry(Item{
+							Specifier: specifier,
+							Uid:       uid,
+						}); err != nil {
+							log.Fatal(fmt.Errorf("\tfailed to put entry for %s: %s", specifier, err))
+						}
+					}
+				}
 			}
 
 			err := txn.Commit(ctx)
@@ -160,19 +167,6 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 				log.Fatalf("failed to commit transaction: %s\n", err)
 			}
 			log.Printf("transaction completed for %s\n", mod.Module)
-
-			for specifier, uid := range uids {
-				// TODO(wperron): there's probably a better to filter for only
-				//   the UIDs that were created as part of this mutation
-				if strings.HasPrefix(specifier, "https://") {
-					if err := PutEntry(Item{
-						Specifier: specifier,
-						Uid:       uid,
-					}); err != nil {
-						log.Fatal(fmt.Errorf("\tfailed to put entry for %s: %s", specifier, err))
-					}
-				}
-			}
 		}
 
 		log.Println("finished inserting all files")
