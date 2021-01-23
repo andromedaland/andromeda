@@ -3,6 +3,7 @@ package deno
 
 import (
 	"encoding/json"
+	"log"
 	"net/url"
 	"os/exec"
 )
@@ -20,6 +21,20 @@ type DenoInfo struct {
 type FileEntry struct {
 	Deps []string `json:"deps"`
 	Size int      `json:"size"`
+}
+
+func Exists() bool {
+	path, err := exec.LookPath("deno")
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+
+	if path == "" {
+		return false
+	}
+
+	return true
 }
 
 func ExecInfo(target url.URL) (DenoInfo, error) {

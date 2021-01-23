@@ -3,18 +3,19 @@ package constellation
 
 import (
 	"fmt"
+	"log"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
-	"log"
 )
 
 var svc *dynamodb.DynamoDB
 
 const (
-	table = "andromeda-test-2"
+	table = "andromeda-test-4"
 )
 
 func init() {
@@ -59,32 +60,25 @@ func PutEntry(item Item) error {
 	return nil
 }
 
-func GetSpecifierUid(specifier string) (Item, error) {
-	out, err := svc.Query(&dynamodb.QueryInput{
-		TableName:              aws.String(table),
-		IndexName:              aws.String("specifier-uid-index"),
-		KeyConditionExpression: aws.String("specifier = :specifier"),
-		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
-			":specifier": {
+func GetEntry(specifier string) (Item, error) {
+	out, err := svc.GetItem(&dynamodb.GetItemInput{
+		TableName: aws.String(table),
+		Key: map[string]*dynamodb.AttributeValue{
+			"specifier": {
 				S: aws.String(specifier),
 			},
 		},
-		Select:         aws.String("ALL_PROJECTED_ATTRIBUTES"),
+		ConsistentRead: aws.Bool(true),
 	})
 
 	if err != nil {
 		return Item{}, err
 	}
-	var items []Item
-	if err := dynamodbattribute.UnmarshalListOfMaps(out.Items, &items); err != nil {
+
+	var item Item
+	if err := dynamodbattribute.UnmarshalMap(out.Item, &item); err != nil {
 		return Item{}, err
 	}
 
-	if len(items) > 1 {
-		return Item{}, fmt.Errorf("expected only one result for %s, got %d", specifier, len(items))
-	} else if len(items) == 0 {
-		return Item{}, nil
-	}
-
-	return items[0], nil
+	return item, nil
 }

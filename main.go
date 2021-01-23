@@ -4,14 +4,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/wperron/depgraph/constellation"
-	"github.com/wperron/depgraph/deno"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/wperron/depgraph/constellation"
+	"github.com/wperron/depgraph/deno"
 )
 
 func main() {
@@ -32,6 +33,10 @@ func main() {
 		log.Fatalf("failed to initialize schema: %s\n", err)
 	}
 	log.Println("Successfully initialized schema on startup.")
+
+	if ok := deno.Exists(); !ok {
+		log.Fatal("stopping: executable `deno` not found in PATH")
+	}
 
 	crawler := deno.NewDenoLandInstrumentedCrawler()
 	modules, errs := crawler.IterateModules()

@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
+
 	"github.com/dgraph-io/dgo/v2"
 	"github.com/dgraph-io/dgo/v2/protos/api"
 	"github.com/wperron/depgraph/deno"
 	"google.golang.org/grpc"
-	"log"
-	"strings"
 )
 
 var client *dgo.Dgraph
@@ -192,11 +193,15 @@ func mutateFile(ctx context.Context, txn *dgo.Txn, specifier string, entry deno.
 		for _, d := range entry.Deps {
 			uid := fmt.Sprintf("_:%s", d)
 
-			item, err := GetSpecifierUid(d)
+			item, err := GetEntry(d)
 			if err != nil {
 				log.Fatalf("failed to get specificer %s from DynamoDB: %s\n", d, err)
 			}
 
+			// Uid is a projected attribute of the item in DDB. functionnaly, there
+			// is no difference between checking for `Uid == ""` than checking for
+			// `Specificer == ""`. In this case, checking for Uid is simply the
+			// closest to the semantics of "check if item is in graph."
 			if item.Uid != "" {
 				uid = item.Uid
 			} else {
@@ -208,7 +213,7 @@ func mutateFile(ctx context.Context, txn *dgo.Txn, specifier string, entry deno.
 	}
 
 	uid := fmt.Sprintf("_:%s", specifier)
-	item, err := GetSpecifierUid(specifier)
+	item, err := GetEntry(specifier)
 	if err != nil {
 		log.Fatal(err)
 	}

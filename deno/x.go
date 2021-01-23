@@ -4,13 +4,14 @@ package deno
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sync"
+
+	"github.com/pkg/errors"
 )
-import "net/url"
 
 const CDN_HOST = "cdn.deno.land"
 const API_HOST = "api.deno.land"
@@ -77,7 +78,7 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 			// by one as the process goes on. This isn't necessarily bad (cpu
 			// usage tends to stay low) but should be kept in mind.
 			go func(mod string, wg *sync.WaitGroup) {
-				versions, err := c.listModuleVersions(mod)
+				v, err := c.listModuleVersions(mod)
 				if err != nil {
 					errs <- err
 					return
@@ -85,14 +86,14 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 
 				versionMap := make(map[string][]directoryListing)
 
-				for _, v := range versions.Versions {
-					dir, err := c.getModuleVersionDirectoryListing(mod, v)
+				for _, ver := range v.Versions {
+					dir, err := c.getModuleVersionDirectoryListing(mod, ver)
 					if err != nil {
 						errs <- err
 					}
 
 					dir = stripUselessEntries(dir)
-					versionMap[v] = dir
+					versionMap[ver] = dir
 				}
 
 				out <- Module{
