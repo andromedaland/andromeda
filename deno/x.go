@@ -77,7 +77,7 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 			// as there are modules on deno.land/x, which are then resolved one
 			// by one as the process goes on. This isn't necessarily bad (cpu
 			// usage tends to stay low) but should be kept in mind.
-			go func(mod string, wg *sync.WaitGroup) {
+			func(mod string, wg *sync.WaitGroup) {
 				v, err := c.listModuleVersions(mod)
 				if err != nil {
 					errs <- err
