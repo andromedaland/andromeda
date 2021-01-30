@@ -18,6 +18,7 @@ import (
 
 var client *dgo.Dgraph
 var trxCounter prometheus.Counter
+var mutationsCounter prometheus.Counter
 var commitLatency prometheus.Histogram
 
 func init() {
@@ -28,6 +29,13 @@ func init() {
 		},
 	)
 
+	mutationsCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "mutations_total",
+			Help: "A counter for mutations in DGraph",
+		},
+	)
+
 	commitLatency = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name: "commit_latency",
@@ -35,7 +43,7 @@ func init() {
 		},
 	)
 
-	prometheus.MustRegister(trxCounter, commitLatency)
+	prometheus.MustRegister(trxCounter, mutationsCounter, commitLatency)
 }
 
 type File struct {
@@ -146,6 +154,7 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 
 			mut := api.Mutation{}
 			mut.SetJson = bytes
+			mutationsCounter.Add(1)
 			resp, err := txn.Mutate(ctx, &mut)
 			if err != nil {
 				log.Println(fmt.Errorf("failed to run mutation for file %s: %s", mod.Name, err))
@@ -274,6 +283,7 @@ func mutateFile(ctx context.Context, txn *dgo.Txn, specifier string, entry deno.
 
 	mut := api.Mutation{}
 	mut.SetJson = bytes
+	mutationsCounter.Add(1)
 	resp, err := txn.Mutate(ctx, &mut)
 	if err != nil {
 		log.Println(fmt.Errorf("failed to run mutation for file %s: %s", specifier, err))
