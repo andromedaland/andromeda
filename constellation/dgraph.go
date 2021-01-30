@@ -7,14 +7,36 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/dgraph-io/dgo/v2"
 	"github.com/dgraph-io/dgo/v2/protos/api"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/wperron/depgraph/deno"
 	"google.golang.org/grpc"
 )
 
 var client *dgo.Dgraph
+var trxCounter prometheus.Counter
+var commitLatency prometheus.Histogram
+
+func init() {
+	trxCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "transactions_total",
+			Help: "A counter for transactions in DGraph",
+		},
+	)
+
+	commitLatency = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name: "commit_latency",
+			Help: "A histogram of transaction latencies",
+		},
+	)
+
+	prometheus.MustRegister(trxCounter, commitLatency)
+}
 
 type File struct {
 	Uid       string   `json:"uid,omitempty"`
@@ -97,7 +119,15 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 	go func() {
 		all := make(map[string]string)
 		for mod := range mods {
+			trxCounter.Add(1)
+
 			txn := client.NewTxn()
+			defer func(ctx context.Context, t *dgo.Txn) {
+				err := t.Discard(ctx)
+				if err != nil {
+					log.Println(fmt.Errorf("failed to discard txn: %s", err))
+				}
+			}(ctx, txn)
 			uid := fmt.Sprintf("_:%s", mod.Name)
 			if u, ok := all[mod.Name]; ok {
 				uid = u
@@ -121,8 +151,16 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 				log.Println(fmt.Errorf("failed to run mutation for file %s: %s", mod.Name, err))
 			}
 
+			start := time.Now()
+			err = txn.Commit(ctx)
+			commitLatency.Observe(time.Since(start).Seconds())
+			if err != nil {
+				log.Fatalf("failed to commit transaction: %s\n", err)
+			}
+
 			all = merge(all, resp.Uids)
 			out <- mod
+
 		}
 		close(out)
 	}()
@@ -134,6 +172,8 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 	done := make(chan bool)
 	go func() {
 		for mod := range mods {
+			trxCounter.Add(1)
+
 			txn := client.NewTxn()
 			defer func(ctx context.Context, t *dgo.Txn) {
 				err := t.Discard(ctx)
@@ -162,7 +202,9 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 				}
 			}
 
+			start := time.Now()
 			err := txn.Commit(ctx)
+			commitLatency.Observe(time.Since(start).Seconds())
 			if err != nil {
 				log.Fatalf("failed to commit transaction: %s\n", err)
 			}
