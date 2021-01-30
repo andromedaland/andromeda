@@ -67,10 +67,8 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 			return
 		}
 
-		// TODO(wperron): remove slicing before v1
-		list = list[:100]
 		wg := sync.WaitGroup{}
-		for _, mod := range list {
+		for mod := range list {
 			wg.Add(1)
 
 			// launching this goroutine floods the runtime with as many goroutines
@@ -112,7 +110,9 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 	return out, errs
 }
 
-func (c *crawler) listAllModules() (simpleModuleList, error) {
+func (c *crawler) listAllModules() (chan string, error) {
+	out := make(chan string, 100)
+
 	u := url.URL{
 		Scheme:   "https",
 		Host:     API_HOST,
@@ -123,7 +123,7 @@ func (c *crawler) listAllModules() (simpleModuleList, error) {
 
 	resp, err := c.DoRequest(req)
 	if err != nil {
-		return simpleModuleList{}, errors.Errorf("failed to get simple list of modules: %s", err)
+		return nil, errors.Errorf("failed to get simple list of modules: %s", err)
 	}
 	defer resp.Body.Close()
 
@@ -132,9 +132,16 @@ func (c *crawler) listAllModules() (simpleModuleList, error) {
 	err = json.Unmarshal(body, &moduleList)
 
 	if err != nil {
-		return moduleList, errors.Errorf("failed to unmarshal response body: %s", err)
+		return nil, errors.Errorf("failed to unmarshal response body: %s", err)
 	}
-	return moduleList, nil
+
+	go func() {
+		for _, mod := range moduleList {
+			out <- mod
+		}
+	}()
+
+	return out, nil
 }
 
 func (c *crawler) listModuleVersions(mod string) (versions, error) {
