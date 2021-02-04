@@ -38,14 +38,17 @@ func main() {
 		log.Fatal("stopping: executable `deno` not found in PATH")
 	}
 
+	q := deno.NewChanQueue(0)
 	crawler := deno.NewDenoLandInstrumentedCrawler()
-	modules, errs := crawler.IterateModules()
+	crawled, errsModules := crawler.IterateModules()
+	modules, errsEnqueue := deno.Enqueue(crawled, &q)
 	inserted := constellation.InsertModules(ctx, modules)
 	infos := IterateModuleInfo(inserted)
 	done := constellation.InsertFiles(ctx, infos)
 
+	merged := mergeErrors(errsModules, errsEnqueue)
 	go func() {
-		for e := range errs {
+		for e := range merged {
 			log.Printf("error: %s\n", e)
 		}
 	}()
@@ -86,5 +89,18 @@ func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {
 		}
 		close(out)
 	}()
+	return out
+}
+
+func mergeErrors(chans ...chan error) chan error {
+	out := make(chan error)
+
+	for _, c := range chans {
+		go func(c <-chan error) {
+			for v := range c {
+				out <- v
+			}
+		}(c)
+	}
 	return out
 }
