@@ -20,11 +20,6 @@ const (
 	table = "andromeda-test-4"
 )
 
-func init() {
-	sess := session.Must(session.NewSession())
-	svc = dynamodb.New(sess, &aws.Config{Credentials: sess.Config.Credentials, Region: aws.String("us-east-1")})
-}
-
 type Item struct {
 	Specifier string `json:"specifier"`
 	Uid       string `json:"uid,omitempty"`
@@ -36,6 +31,9 @@ var getItemCounter prometheus.Counter
 var ddbLatency prometheus.Histogram
 
 func init() {
+	sess := session.Must(session.NewSession())
+	svc = dynamodb.New(sess, &aws.Config{Credentials: sess.Config.Credentials, Region: aws.String("us-east-1")})
+
 	putItemCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "dynamodb_put_item_total",
