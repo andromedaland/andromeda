@@ -17,20 +17,20 @@ const CDN_HOST = "cdn.deno.land"
 const API_HOST = "api.deno.land"
 const PREFIX_LENGTH = len("https://deno.land/x/")
 
-type DenoLandCrawler interface {
-	IterateModules() (chan Module, chan error)
+// XQueuedCrawler is a composite type composed of both a Queue and a Crawler
+type XQueuedCrawler struct {
+	Crawler
+	done chan bool
+	Queue
 }
 
-func NewDenoLandInstrumentedCrawler() DenoLandCrawler {
-	c := NewInstrumentedCrawler()
-	return c.(DenoLandCrawler)
-}
-
-type ApiResponse struct {
+type apiResponse struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data"`
 }
 
+// Module contains the name of the volume and a map of all its versions to all
+// the files contained in the module
 type Module struct {
 	Name     string
 	Versions map[string][]directoryListing
@@ -54,15 +54,64 @@ type directoryListing struct {
 	Type string `json:"type"`
 }
 
-func (c *crawler) IterateModules() (chan Module, chan error) {
+// NewXQueuedCrawler returns an instance of a crawler for https://deno.land with
+// a Queue
+func NewXQueuedCrawler(q Queue) *XQueuedCrawler {
+	return &XQueuedCrawler{
+		Crawler: NewInstrumentedCrawler(),
+		Queue:   q,
+	}
+}
+
+// IterateModules asynchronously consumes the queue and sends each Module to a
+// channel
+func (x *XQueuedCrawler) IterateModules() (chan Module, chan error) {
 	out := make(chan Module)
 	errs := make(chan error)
 
 	go func() {
-		list, err := c.listAllModules()
+		// TODO(wperron) add a ctx param to the function and a select statement
+		//  to exit the infinite loop
+		for {
+			mod, err := x.Queue.Get()
+			if err != nil {
+				errs <- err
+			} else {
+				out <- mod
+			}
+		}
+	}()
+
+	return out, errs
+}
+
+var closedchan = make(chan bool)
+
+func init() {
+	close(closedchan)
+}
+
+// Done returns the done channel of the crawler
+func (x *XQueuedCrawler) Done() <-chan bool {
+	if x.done == nil {
+		x.done = make(chan bool)
+	}
+	return x.done
+}
+
+// Crawl asynchronously crawls https://deno.land and puts each Module in the
+// queue to be processed later
+func (x *XQueuedCrawler) Crawl() chan error {
+	errs := make(chan error)
+
+	go func() {
+		if x.done == closedchan || x.done == nil {
+			x.done = make(chan bool)
+		}
+
+		list, err := x.listAllModules()
 		if err != nil {
-			close(out)
-			errs <- errors.Errorf("failed to list all module names: %s", err)
+			errs <- err
 			close(errs)
 			return
 		}
@@ -70,13 +119,8 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 		wg := sync.WaitGroup{}
 		for mod := range list {
 			wg.Add(1)
-
-			// launching this goroutine floods the runtime with as many goroutines
-			// as there are modules on deno.land/x, which are then resolved one
-			// by one as the process goes on. This isn't necessarily bad (cpu
-			// usage tends to stay low) but should be kept in mind.
-			func(mod string, wg *sync.WaitGroup) {
-				v, err := c.listModuleVersions(mod)
+			go func(mod string, wg *sync.WaitGroup) {
+				v, err := x.listModuleVersions(mod)
 				if err != nil {
 					errs <- err
 					return
@@ -85,32 +129,35 @@ func (c *crawler) IterateModules() (chan Module, chan error) {
 				versionMap := make(map[string][]directoryListing)
 
 				for _, ver := range v.Versions {
-					dir, err := c.getModuleVersionDirectoryListing(mod, ver)
+					dir, err := x.getModuleVersionDirectoryListing(mod, ver)
 					if err != nil {
 						errs <- err
+						return
 					}
 
 					dir = stripUselessEntries(dir)
 					versionMap[ver] = dir
 				}
 
-				out <- Module{
+				err = x.Queue.Put(Module{
 					Name:     mod,
 					Versions: versionMap,
+				})
+				if err != nil {
+					errs <- err
 				}
 				wg.Done()
 			}(mod, &wg)
 		}
 		wg.Wait()
-
-		close(out)
-		close(errs)
+		x.done <- true
+		close(x.done)
 	}()
 
-	return out, errs
+	return errs
 }
 
-func (c *crawler) listAllModules() (chan string, error) {
+func (x *XQueuedCrawler) listAllModules() (chan string, error) {
 	out := make(chan string, 100)
 
 	u := url.URL{
@@ -121,7 +168,7 @@ func (c *crawler) listAllModules() (chan string, error) {
 	}
 	req, _ := http.NewRequest("GET", u.String(), nil)
 
-	resp, err := c.DoRequest(req)
+	resp, err := x.DoRequest(req)
 	if err != nil {
 		return nil, errors.Errorf("failed to get simple list of modules: %s", err)
 	}
@@ -144,7 +191,7 @@ func (c *crawler) listAllModules() (chan string, error) {
 	return out, nil
 }
 
-func (c *crawler) listModuleVersions(mod string) (versions, error) {
+func (x *XQueuedCrawler) listModuleVersions(mod string) (versions, error) {
 	u := url.URL{
 		Scheme: "https",
 		Host:   CDN_HOST,
@@ -152,7 +199,7 @@ func (c *crawler) listModuleVersions(mod string) (versions, error) {
 	}
 	req, _ := http.NewRequest("GET", u.String(), nil)
 
-	resp, err := c.DoRequest(req)
+	resp, err := x.DoRequest(req)
 	if err != nil {
 		return versions{}, errors.Errorf("failed to get versions for module %s: %s\n", mod, err)
 	}
@@ -168,7 +215,7 @@ func (c *crawler) listModuleVersions(mod string) (versions, error) {
 	return ver, nil
 }
 
-func (c *crawler) getModuleVersionDirectoryListing(mod, version string) ([]directoryListing, error) {
+func (x *XQueuedCrawler) getModuleVersionDirectoryListing(mod, version string) ([]directoryListing, error) {
 	u := url.URL{
 		Scheme: "https",
 		Host:   CDN_HOST,
@@ -176,7 +223,7 @@ func (c *crawler) getModuleVersionDirectoryListing(mod, version string) ([]direc
 	}
 	req, _ := http.NewRequest("GET", u.String(), nil)
 
-	resp, err := c.DoRequest(req)
+	resp, err := x.DoRequest(req)
 	if err != nil {
 		return []directoryListing{}, errors.Errorf("failed to get directory listing for %s@%s: %s", mod, version, err)
 	}

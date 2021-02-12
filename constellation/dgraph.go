@@ -127,6 +127,7 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 	go func() {
 		all := make(map[string]string)
 		for mod := range mods {
+			log.Printf("\tprocesssing %s\n", mod.Name)
 			trxCounter.Add(1)
 
 			txn := client.NewTxn()

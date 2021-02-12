@@ -4,9 +4,13 @@ package deno
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 )
 
 // Queue interface for putting and getting messages. The interface doesn make
@@ -33,6 +37,7 @@ func Enqueue(mods chan Module, q Queue) (chan Module, chan error) {
 				e <- err
 			}
 		}
+		close(out)
 	}()
 
 	go func() {
@@ -92,11 +97,37 @@ type SQSQueue struct {
 // NewSQSQueue instantiates a new SQS Client with the given config
 func NewSQSQueue(c aws.Config, url string, buf int) *SQSQueue {
 	client := sqs.NewFromConfig(c)
-	return &SQSQueue{
+	q := &SQSQueue{
 		queue:    client,
 		queueURL: aws.String(url),
 		buf:      make(chan Module),
 	}
+
+	// start polling the queue asynchronously
+	go func() {
+		for {
+			out, err := client.ReceiveMessage(context.TODO(), &sqs.ReceiveMessageInput{
+				QueueUrl:          q.queueURL,
+				VisibilityTimeout: 10800, // 3 hours (60 * 60 * 3)
+			})
+
+			if err != nil {
+				log.Printf("error consuming SQS: %s\n", err)
+				continue
+			}
+
+			for _, m := range out.Messages {
+				var mod Module
+				err := json.Unmarshal([]byte(*m.Body), &mod)
+				if err != nil {
+					log.Printf("error unmarshalling message from SQS: %s\n", err)
+				}
+				q.buf <- mod
+			}
+		}
+	}()
+
+	return q
 }
 
 // Put sends a message to SQS and returns any error encountered by the aws client
@@ -116,19 +147,35 @@ func (s *SQSQueue) Put(m Module) error {
 // Get returns a single message either from the internal buffer queue or from
 // the SQS queue
 func (s *SQSQueue) Get() (Module, error) {
-	select {
-	case m, ok := <-s.buf:
-		if !ok {
-			s.closed = true
-		}
-		return m, nil
-	default:
-		s.queue.ReceiveMessage(context.TODO(), &sqs.ReceiveMessageInput{
-			QueueUrl:          s.queueURL,
-			VisibilityTimeout: 10800, // 3 hours (60 * 60 * 3)
-		})
-		return Module{}, nil
+	return <-s.buf, nil
+}
+
+// Approx returns the approximate total number of messages in the queue, visible,
+// delayed or not visible.
+func (s *SQSQueue) Approx() (int, error) {
+	out, err := s.queue.GetQueueAttributes(context.TODO(), &sqs.GetQueueAttributesInput{
+		QueueUrl: s.queueURL,
+		AttributeNames: []types.QueueAttributeName{
+			"ApproximateNumberOfMessages",
+			"ApproximateNumberOfMessagesDelayed",
+			"ApproximateNumberOfMessagesNotVisible",
+		},
+	})
+
+	if err != nil {
+		return -1, fmt.Errorf("failed to get queue attributes: %s", err)
 	}
+
+	total := 0
+	for _, v := range out.Attributes {
+		i, err := strconv.Atoi(v)
+		if err != nil {
+			log.Printf("couldn't convert value '%s' to an int\n", v)
+		}
+
+		total += i
+	}
+	return total, nil
 }
 
 func (s *SQSQueue) isOpened() bool {

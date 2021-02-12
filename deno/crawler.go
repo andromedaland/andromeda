@@ -2,14 +2,16 @@
 package deno
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// Crawler interface defines the basic functions of an HTTP crawler
 type Crawler interface {
 	DoRequest(*http.Request) (*http.Response, error)
 }
@@ -21,6 +23,8 @@ type crawler struct {
 	last         time.Time
 }
 
+// DefaultCrawler returns an instance of a crawler that uses the default http
+// client
 func DefaultCrawler() Crawler {
 	return &crawler{
 		client:       http.DefaultClient,
@@ -28,6 +32,8 @@ func DefaultCrawler() Crawler {
 	}
 }
 
+// NewInstrumentedCrawler returns an instance of a crawler that uses an http
+// client intstrumented with Prometheus
 func NewInstrumentedCrawler() Crawler {
 	client := http.DefaultClient
 	client.Timeout = 1 * time.Second
@@ -126,6 +132,6 @@ func (c *crawler) DoRequest(req *http.Request) (*http.Response, error) {
 	time.Sleep(time.Until(c.last.Add(time.Duration(c.ThrottleRate) * time.Second)))
 	c.last = time.Now()
 	log.Printf("request %s\n", req.URL.String())
-	req.Header.Set("User-Agent", "Wperron/Depgraph-v0.1")
+	req.Header.Set("User-Agent", "Andromedaland-v0.1")
 	return c.client.Do(req)
 }

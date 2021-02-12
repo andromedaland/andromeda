@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/wperron/depgraph/constellation"
@@ -38,15 +40,23 @@ func main() {
 		log.Fatal("stopping: executable `deno` not found in PATH")
 	}
 
-	q := deno.NewChanQueue(0)
-	crawler := deno.NewDenoLandInstrumentedCrawler()
-	crawled, errsModules := crawler.IterateModules()
-	modules, errsEnqueue := deno.Enqueue(crawled, &q)
-	inserted := constellation.InsertModules(ctx, modules)
+	// AWS config
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("us-east-1"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	q := deno.NewSQSQueue(cfg, "https://sqs.us-east-1.amazonaws.com/831183038069/andromeda-test-1", 0)
+	crawler := deno.NewXQueuedCrawler(q)
+
+	toInsert, errs := crawler.IterateModules()
+	crawlErrs := WatchQueue(crawler, q)
+
+	inserted := constellation.InsertModules(ctx, toInsert)
 	infos := IterateModuleInfo(inserted)
 	done := constellation.InsertFiles(ctx, infos)
 
-	merged := mergeErrors(errsModules, errsEnqueue)
+	merged := mergeErrors(errs, crawlErrs)
 	go func() {
 		for e := range merged {
 			log.Printf("error: %s\n", e)
@@ -58,6 +68,40 @@ func main() {
 	os.Exit(0)
 }
 
+// WatchQueue is an infinite loop that checks the number of messages present in
+// an SQSQueue instance and triggers the Crawler when it gets below a certain
+// threshold
+func WatchQueue(crawler *deno.XQueuedCrawler, sq *deno.SQSQueue) chan error {
+	errs := make(chan error)
+
+	go func() {
+		for {
+			num, err := sq.Approx()
+			if err != nil {
+				errs <- err
+				continue
+			}
+
+			if num < 50 {
+				crawlErrs := crawler.Crawl()
+				go func() {
+					for e := range crawlErrs {
+						errs <- e
+					}
+				}()
+				<-crawler.Done()
+			}
+
+			// TODO(wperron) find something better than sleep (timer maybe?)
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+	return errs
+}
+
+// IterateModuleInfo consumes the channel of Module and runs deno.ExecInfo for
+// every source code file of every version
 // TODO(wperron): refactor logic specific to deno.land/x to deno/x.go
 func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {
 	out := make(chan deno.DenoInfo)
