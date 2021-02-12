@@ -2,19 +2,19 @@
 package constellation
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-var svc *dynamodb.DynamoDB
+var svc *dynamodb.Client
 
 const (
 	table = "andromeda-test-4"
@@ -31,8 +31,11 @@ var getItemCounter prometheus.Counter
 var ddbLatency prometheus.Histogram
 
 func init() {
-	sess := session.Must(session.NewSession())
-	svc = dynamodb.New(sess, &aws.Config{Credentials: sess.Config.Credentials, Region: aws.String("us-east-1")})
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("us-east-1"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	svc = dynamodb.NewFromConfig(cfg)
 
 	putItemCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -68,33 +71,26 @@ func init() {
 func PutEntry(item Item) error {
 	start := time.Now()
 	putItemCounter.Add(1)
-	_, err := svc.PutItem(&dynamodb.PutItemInput{
-		Item: map[string]*dynamodb.AttributeValue{
-			"specifier": {
-				S: aws.String(item.Specifier),
+	_, err := svc.PutItem(context.TODO(), &dynamodb.PutItemInput{
+		Item: map[string]types.AttributeValue{
+			"specifier": &types.AttributeValueMemberS{
+				Value: item.Specifier,
 			},
-			"uid": {
-				S: aws.String(item.Uid),
+			"uid": &types.AttributeValueMemberS{
+				Value: item.Uid,
 			},
 		},
-		ReturnConsumedCapacity: aws.String("TOTAL"),
+		ReturnConsumedCapacity: "TOTAL",
 		ConditionExpression:    aws.String("attribute_not_exists(specifier)"),
 		TableName:              aws.String(table),
 	})
 
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case dynamodb.ErrCodeConditionalCheckFailedException:
-				putConditionFailedCounter.Add(1)
-				log.Printf("%s already exists, nothing to do.", item.Specifier)
-				ddbLatency.Observe(time.Since(start).Seconds())
-				return nil
-			default:
-				fmt.Println(aerr.Error())
-			}
-		} else {
-			fmt.Println(err.Error())
+		if _, ok := err.(*types.ConditionalCheckFailedException); ok {
+			putConditionFailedCounter.Inc()
+			log.Printf("%s already exists, nothing to do.", item.Specifier)
+			ddbLatency.Observe(time.Since(start).Seconds())
+			return nil
 		}
 		ddbLatency.Observe(time.Since(start).Seconds())
 		return err
@@ -106,11 +102,11 @@ func PutEntry(item Item) error {
 func GetEntry(specifier string) (Item, error) {
 	start := time.Now()
 	getItemCounter.Add(1)
-	out, err := svc.GetItem(&dynamodb.GetItemInput{
+	out, err := svc.GetItem(context.TODO(), &dynamodb.GetItemInput{
 		TableName: aws.String(table),
-		Key: map[string]*dynamodb.AttributeValue{
-			"specifier": {
-				S: aws.String(specifier),
+		Key: map[string]types.AttributeValue{
+			"specifier": &types.AttributeValueMemberS{
+				Value: specifier,
 			},
 		},
 		ConsistentRead: aws.Bool(true),
@@ -122,7 +118,7 @@ func GetEntry(specifier string) (Item, error) {
 	}
 
 	var item Item
-	if err := dynamodbattribute.UnmarshalMap(out.Item, &item); err != nil {
+	if err := attributevalue.UnmarshalMap(out.Item, &item); err != nil {
 		ddbLatency.Observe(time.Since(start).Seconds())
 		return Item{}, err
 	}

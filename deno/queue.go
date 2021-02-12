@@ -90,8 +90,8 @@ type SQSQueue struct {
 }
 
 // NewSQSQueue instantiates a new SQS Client with the given config
-func NewSQSQueue(c *aws.Config, url string, buf int) *SQSQueue {
-	client := sqs.New(*c)
+func NewSQSQueue(c aws.Config, url string, buf int) *SQSQueue {
+	client := sqs.NewFromConfig(c)
 	return &SQSQueue{
 		queue:    client,
 		queueURL: aws.String(url),
@@ -101,16 +101,15 @@ func NewSQSQueue(c *aws.Config, url string, buf int) *SQSQueue {
 
 // Put sends a message to SQS and returns any error encountered by the aws client
 func (s *SQSQueue) Put(m Module) error {
-	ctx := context.Background()
 	bs, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
 
-	_, err = s.queue.SendMessageRequest(&sqs.SendMessageInput{
+	_, err = s.queue.SendMessage(context.TODO(), &sqs.SendMessageInput{
 		QueueUrl:    s.queueURL,
 		MessageBody: aws.String(string(bs)),
-	}).Send(ctx)
+	})
 	return err
 }
 
@@ -124,11 +123,10 @@ func (s *SQSQueue) Get() (Module, error) {
 		}
 		return m, nil
 	default:
-		ctx := context.Background()
-		s.queue.ReceiveMessageRequest(&sqs.ReceiveMessageInput{
+		s.queue.ReceiveMessage(context.TODO(), &sqs.ReceiveMessageInput{
 			QueueUrl:          s.queueURL,
-			VisibilityTimeout: aws.Int64(10800), // 3 hours (60 * 60 * 3)
-		}).Send(ctx)
+			VisibilityTimeout: 10800, // 3 hours (60 * 60 * 3)
+		})
 		return Module{}, nil
 	}
 }
