@@ -127,16 +127,9 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 	go func() {
 		all := make(map[string]string)
 		for mod := range mods {
-			log.Printf("\tprocesssing %s\n", mod.Name)
 			trxCounter.Add(1)
 
 			txn := client.NewTxn()
-			defer func(ctx context.Context, t *dgo.Txn) {
-				err := t.Discard(ctx)
-				if err != nil {
-					log.Println(fmt.Errorf("failed to discard txn: %s", err))
-				}
-			}(ctx, txn)
 			uid := fmt.Sprintf("_:%s", mod.Name)
 			if u, ok := all[mod.Name]; ok {
 				uid = u
@@ -151,6 +144,8 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 			bytes, err := json.Marshal(m)
 			if err != nil {
 				log.Println(fmt.Errorf("failed to marshal module entry: %s", err))
+				discard(ctx, txn)
+				continue
 			}
 
 			mut := api.Mutation{}
@@ -159,6 +154,8 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 			resp, err := txn.Mutate(ctx, &mut)
 			if err != nil {
 				log.Println(fmt.Errorf("failed to run mutation for file %s: %s", mod.Name, err))
+				discard(ctx, txn)
+				continue
 			}
 
 			start := time.Now()
@@ -166,6 +163,8 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 			commitLatency.Observe(time.Since(start).Seconds())
 			if err != nil {
 				log.Fatalf("failed to commit transaction: %s\n", err)
+				discard(ctx, txn)
+				continue
 			}
 
 			all = merge(all, resp.Uids)
@@ -185,17 +184,13 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 			trxCounter.Add(1)
 
 			txn := client.NewTxn()
-			defer func(ctx context.Context, t *dgo.Txn) {
-				err := t.Discard(ctx)
-				if err != nil {
-					log.Println(fmt.Errorf("failed to discard txn: %s", err))
-				}
-			}(ctx, txn)
 
 			for k, f := range mod.Files {
 				uids, err := mutateFile(ctx, txn, k, f)
 				if err != nil {
 					log.Fatalf("failed to run mutation for %s: %s\n", k, err)
+					discard(ctx, txn)
+					continue
 				}
 
 				for specifier, uid := range uids {
@@ -217,6 +212,8 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 			commitLatency.Observe(time.Since(start).Seconds())
 			if err != nil {
 				log.Fatalf("failed to commit transaction: %s\n", err)
+				discard(ctx, txn)
+				continue
 			}
 			log.Printf("transaction completed for %s\n", mod.Module)
 		}
@@ -287,13 +284,22 @@ func mutateFile(ctx context.Context, txn *dgo.Txn, specifier string, entry deno.
 	mutationsCounter.Add(1)
 	resp, err := txn.Mutate(ctx, &mut)
 	if err != nil {
-		log.Println(fmt.Errorf("failed to run mutation for file %s: %s", specifier, err))
+		e := fmt.Errorf("failed to run mutation for file %s: %s", specifier, err)
+		log.Println(e)
+		return map[string]string{}, nil
 	}
 
 	// the returned blanks in the Uids map only contain the right hand part of
 	// the blank that was used in the mutation (_:<specifier>). For all intents
 	// and purposes, the resp.Uids map is a specifier->uids map.
 	return resp.Uids, nil
+}
+
+func discard(ctx context.Context, txn *dgo.Txn) {
+	err := txn.Discard(ctx)
+	if err != nil {
+		log.Println(fmt.Errorf("failed to discard txn: %s", err))
+	}
 }
 
 func merge(maps ...map[string]string) (out map[string]string) {

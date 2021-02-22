@@ -46,4 +46,4 @@ services:
       - ./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml
       - ./grafana/dashboard_dgraph.json:/etc/dashboards/dgraph.json
       - ./grafana/dashboard_crawler.json:/etc/dashboards/crawler.json
-      - /home/wperron/.aws:/usr/share/grafana/.aws
+      - ./grafana/dashboard_general.json:/etc/dashboards/general.json

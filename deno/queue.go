@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/cornelk/hashmap"
 )
 
 // Queue interface for putting and getting messages. The interface doesn make
@@ -91,16 +93,19 @@ type SQSQueue struct {
 	queue    *sqs.Client
 	queueURL *string
 	buf      chan Module
+	receipts *hashmap.HashMap
 	closed   bool
 }
 
 // NewSQSQueue instantiates a new SQS Client with the given config
 func NewSQSQueue(c aws.Config, url string, buf int) *SQSQueue {
 	client := sqs.NewFromConfig(c)
+	receipts := &hashmap.HashMap{}
 	q := &SQSQueue{
 		queue:    client,
 		queueURL: aws.String(url),
 		buf:      make(chan Module),
+		receipts: receipts,
 	}
 
 	// start polling the queue asynchronously
@@ -123,6 +128,7 @@ func NewSQSQueue(c aws.Config, url string, buf int) *SQSQueue {
 					log.Printf("error unmarshalling message from SQS: %s\n", err)
 				}
 				q.buf <- mod
+				receipts.Set(mod.Name, m.ReceiptHandle)
 			}
 		}
 	}()
@@ -148,6 +154,31 @@ func (s *SQSQueue) Put(m Module) error {
 // the SQS queue
 func (s *SQSQueue) Get() (Module, error) {
 	return <-s.buf, nil
+}
+
+// Delete uses the message's receipt handle to delete the message from the queue
+func (s *SQSQueue) Delete(m Module) error {
+	val, ok := s.receipts.Get(m.Name)
+	if !ok {
+		return fmt.Errorf("no receipt for module %s", m.Name)
+	}
+
+	var handle string
+	if handle, ok = val.(string); ok {
+	} else if ref, ok := val.(*string); ok {
+		handle = *ref
+	} else {
+		return fmt.Errorf("wrong type for key, got %s", reflect.TypeOf(val))
+	}
+
+	if _, err := s.queue.DeleteMessage(context.TODO(), &sqs.DeleteMessageInput{
+		QueueUrl:      s.queueURL,
+		ReceiptHandle: &handle,
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Approx returns the approximate total number of messages in the queue, visible,

@@ -53,7 +53,7 @@ func main() {
 	crawlErrs := WatchQueue(crawler, q)
 
 	inserted := constellation.InsertModules(ctx, toInsert)
-	infos := IterateModuleInfo(inserted)
+	infos := IterateModuleInfo(inserted, q)
 	done := constellation.InsertFiles(ctx, infos)
 
 	merged := mergeErrors(errs, crawlErrs)
@@ -103,7 +103,7 @@ func WatchQueue(crawler *deno.XQueuedCrawler, sq *deno.SQSQueue) chan error {
 // IterateModuleInfo consumes the channel of Module and runs deno.ExecInfo for
 // every source code file of every version
 // TODO(wperron): refactor logic specific to deno.land/x to deno/x.go
-func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {
+func IterateModuleInfo(mods chan deno.Module, sq *deno.SQSQueue) chan deno.DenoInfo {
 	out := make(chan deno.DenoInfo)
 	go func() {
 		for mod := range mods {
@@ -129,6 +129,9 @@ func IterateModuleInfo(mods chan deno.Module) chan deno.DenoInfo {
 					}
 					out <- info
 				}
+			}
+			if err := sq.Delete(mod); err != nil {
+				log.Fatalf("failed to delete %s: %s", mod.Name, err)
 			}
 		}
 		close(out)
