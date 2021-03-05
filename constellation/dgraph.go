@@ -127,6 +127,13 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 	go func() {
 		all := make(map[string]string)
 		for mod := range mods {
+			select {
+			case <-ctx.Done():
+				log.Println("received cancel signal, closing InsertModules")
+				return
+			default:
+			}
+
 			trxCounter.Add(1)
 
 			txn := client.NewTxn()
@@ -169,7 +176,6 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 
 			all = merge(all, resp.Uids)
 			out <- mod
-
 		}
 		close(out)
 	}()
@@ -177,6 +183,8 @@ func InsertModules(ctx context.Context, mods chan deno.Module) chan deno.Module 
 	return out
 }
 
+// InsertFiles iterates over a channel of DenoInfo and inserts every specifier
+// in it in the DGraph cluster
 func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 	done := make(chan bool)
 	go func() {
@@ -185,7 +193,15 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 
 			txn := client.NewTxn()
 
+		inner:
 			for k, f := range mod.Files {
+				select {
+				case <-ctx.Done():
+					log.Println("received cancel signal, closing InsertFiles")
+					break inner
+				default:
+				}
+
 				uids, err := mutateFile(ctx, txn, k, f)
 				if err != nil {
 					log.Fatalf("failed to run mutation for %s: %s\n", k, err)
@@ -211,7 +227,7 @@ func InsertFiles(ctx context.Context, mods chan deno.DenoInfo) chan bool {
 			err := txn.Commit(ctx)
 			commitLatency.Observe(time.Since(start).Seconds())
 			if err != nil {
-				log.Fatalf("failed to commit transaction: %s\n", err)
+				log.Printf("failed to commit transaction: %s\n", err)
 				discard(ctx, txn)
 				continue
 			}
@@ -296,6 +312,12 @@ func mutateFile(ctx context.Context, txn *dgo.Txn, specifier string, entry deno.
 }
 
 func discard(ctx context.Context, txn *dgo.Txn) {
+	select {
+	case <-ctx.Done():
+		log.Println("context is already cancelled, exiting early")
+		return
+	default:
+	}
 	err := txn.Discard(ctx)
 	if err != nil {
 		log.Println(fmt.Errorf("failed to discard txn: %s", err))

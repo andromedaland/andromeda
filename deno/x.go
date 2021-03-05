@@ -2,9 +2,11 @@
 package deno
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -65,7 +67,7 @@ func NewXQueuedCrawler(q Queue) *XQueuedCrawler {
 
 // IterateModules asynchronously consumes the queue and sends each Module to a
 // channel
-func (x *XQueuedCrawler) IterateModules() (chan Module, chan error) {
+func (x *XQueuedCrawler) IterateModules(ctx context.Context) (chan Module, chan error) {
 	out := make(chan Module)
 	errs := make(chan error)
 
@@ -73,6 +75,15 @@ func (x *XQueuedCrawler) IterateModules() (chan Module, chan error) {
 		// TODO(wperron) add a ctx param to the function and a select statement
 		//  to exit the infinite loop
 		for {
+			select {
+			case <-ctx.Done():
+				log.Println("received cancel signal, closing IterateModules goroutine")
+				close(out)
+				close(errs)
+				return
+			default:
+			}
+
 			mod, err := x.Queue.Get()
 			if err != nil {
 				errs <- err
@@ -101,7 +112,7 @@ func (x *XQueuedCrawler) Done() <-chan bool {
 
 // Crawl asynchronously crawls https://deno.land and puts each Module in the
 // queue to be processed later
-func (x *XQueuedCrawler) Crawl() chan error {
+func (x *XQueuedCrawler) Crawl(ctx context.Context) chan error {
 	errs := make(chan error)
 
 	go func() {
@@ -120,6 +131,13 @@ func (x *XQueuedCrawler) Crawl() chan error {
 		for mod := range list {
 			wg.Add(1)
 			go func(mod string, wg *sync.WaitGroup) {
+				select {
+				case <-ctx.Done():
+					wg.Done()
+					return
+				default:
+				}
+
 				v, err := x.listModuleVersions(mod)
 				if err != nil {
 					errs <- err
@@ -129,6 +147,13 @@ func (x *XQueuedCrawler) Crawl() chan error {
 				versionMap := make(map[string][]directoryListing)
 
 				for _, ver := range v.Versions {
+					select {
+					case <-ctx.Done():
+						wg.Done()
+						return
+					default:
+					}
+
 					dir, err := x.getModuleVersionDirectoryListing(mod, ver)
 					if err != nil {
 						errs <- err

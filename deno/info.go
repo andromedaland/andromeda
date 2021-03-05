@@ -2,10 +2,12 @@
 package deno
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/url"
 	"os/exec"
+	"syscall"
 )
 
 // DenoInfo is the in-memory representation of the output of `deno info --json`
@@ -42,7 +44,7 @@ func Exists() bool {
 
 // ExecInfo executes `deno info` as a subcommand and returns the DenoInfo struct
 // that it outputs
-func ExecInfo(target url.URL) (DenoInfo, error) {
+func ExecInfo(ctx context.Context, target url.URL) (DenoInfo, error) {
 	cmd := exec.Command("deno", "info", "--unstable", "--json", target.String())
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -55,8 +57,22 @@ func ExecInfo(target url.URL) (DenoInfo, error) {
 	if err := json.NewDecoder(stdout).Decode(&info); err != nil {
 		return DenoInfo{}, err
 	}
-	if err := cmd.Wait(); err != nil {
-		return info, nil
+
+	errs := make(chan error)
+	go func() {
+		errs <- cmd.Wait()
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Println("received cancel signal, closing ExecInfo")
+		cmd.Process.Signal(syscall.SIGTERM)
+		return DenoInfo{}, nil
+	case err := <-errs:
+		if err != nil {
+			return DenoInfo{}, err
+		}
 	}
+
 	return info, nil
 }

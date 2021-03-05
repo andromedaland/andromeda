@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -40,7 +42,14 @@ func init() {
 
 func main() {
 	log.Println("start.")
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		sig := make(chan os.Signal)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+		s := <-sig
+		log.Printf("Received signal %s, cancelling context\n", s)
+		cancel()
+	}()
 
 	http.Handle("/metrics", promhttp.HandlerFor(
 		prometheus.DefaultGatherer,
@@ -70,11 +79,11 @@ func main() {
 	q := deno.NewSQSQueue(cfg, "https://sqs.us-east-1.amazonaws.com/831183038069/andromeda-test-1", 0)
 	crawler := deno.NewXQueuedCrawler(q)
 
-	toInsert, errs := crawler.IterateModules()
-	crawlErrs := WatchQueue(crawler, q)
+	toInsert, errs := crawler.IterateModules(ctx)
+	crawlErrs := WatchQueue(ctx, crawler, q)
 
 	inserted := constellation.InsertModules(ctx, toInsert)
-	infos := IterateModuleInfo(inserted, q)
+	infos := IterateModuleInfo(ctx, inserted, q)
 	done := constellation.InsertFiles(ctx, infos)
 
 	merged := mergeErrors(errs, crawlErrs)
@@ -92,11 +101,18 @@ func main() {
 // WatchQueue is an infinite loop that checks the number of messages present in
 // an SQSQueue instance and triggers the Crawler when it gets below a certain
 // threshold
-func WatchQueue(crawler *deno.XQueuedCrawler, sq *deno.SQSQueue) chan error {
+func WatchQueue(ctx context.Context, crawler *deno.XQueuedCrawler, sq *deno.SQSQueue) chan error {
 	errs := make(chan error)
 
 	go func() {
 		for {
+			select {
+			case <-ctx.Done():
+				log.Println("received cancel signal, closing WatchQueue")
+				close(errs)
+			default:
+			}
+
 			num, err := sq.Approx()
 			if err != nil {
 				errs <- err
@@ -104,7 +120,7 @@ func WatchQueue(crawler *deno.XQueuedCrawler, sq *deno.SQSQueue) chan error {
 			}
 
 			if num < 50 {
-				crawlErrs := crawler.Crawl()
+				crawlErrs := crawler.Crawl(ctx)
 				go func() {
 					for e := range crawlErrs {
 						errs <- e
@@ -124,13 +140,27 @@ func WatchQueue(crawler *deno.XQueuedCrawler, sq *deno.SQSQueue) chan error {
 // IterateModuleInfo consumes the channel of Module and runs deno.ExecInfo for
 // every source code file of every version
 // TODO(wperron): refactor logic specific to deno.land/x to deno/x.go
-func IterateModuleInfo(mods chan deno.Module, sq *deno.SQSQueue) chan deno.DenoInfo {
+func IterateModuleInfo(ctx context.Context, mods chan deno.Module, sq *deno.SQSQueue) chan deno.DenoInfo {
 	out := make(chan deno.DenoInfo)
 	go func() {
 		for mod := range mods {
 			modStart := time.Now()
 			for v, entrypoints := range mod.Versions {
 				for _, file := range entrypoints {
+					select {
+					case <-ctx.Done():
+						// simply exit as soon as the context is cancelled, as a
+						// side effect the module message doesn't get removed
+						// from the queue. This means the whole module will get
+						// picked up and started from the beginning on the next
+						// run, which is a non issue since the process is
+						// idempotent anyway
+						log.Println("received cancel signal, closing IterateModuleInfo")
+						close(out)
+						return
+					default:
+					}
+
 					var path string
 					if mod.Name == "std" {
 						path = fmt.Sprintf("%s@%s%s", mod.Name, v, file.Path)
@@ -145,7 +175,7 @@ func IterateModuleInfo(mods chan deno.Module, sq *deno.SQSQueue) chan deno.DenoI
 					}
 
 					specificerStart := time.Now()
-					info, err := deno.ExecInfo(u)
+					info, err := deno.ExecInfo(ctx, u)
 					specifierDenoInfoHist.Observe(time.Since(specificerStart).Seconds())
 
 					if err != nil {
