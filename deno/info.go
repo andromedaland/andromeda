@@ -8,6 +8,7 @@ import (
 	"os/exec"
 )
 
+// DenoInfo is the in-memory representation of the output of `deno info --json`
 type DenoInfo struct {
 	TotalSize int                  `json:"totalSize"`
 	Module    string               `json:"module"`
@@ -18,11 +19,13 @@ type DenoInfo struct {
 	Files     map[string]FileEntry `json:"files"`
 }
 
+// FileEntry in the Files map of DenoInfo
 type FileEntry struct {
 	Deps []string `json:"deps"`
 	Size int      `json:"size"`
 }
 
+// Exists checks whether the `deno` executable is in path
 func Exists() bool {
 	path, err := exec.LookPath("deno")
 	if err != nil {
@@ -37,6 +40,8 @@ func Exists() bool {
 	return true
 }
 
+// ExecInfo executes `deno info` as a subcommand and returns the DenoInfo struct
+// that it outputs
 func ExecInfo(target url.URL) (DenoInfo, error) {
 	cmd := exec.Command("deno", "info", "--unstable", "--json", target.String())
 	stdout, err := cmd.StdoutPipe()

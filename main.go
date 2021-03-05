@@ -17,6 +17,27 @@ import (
 	"github.com/wperron/depgraph/deno"
 )
 
+var specifierDenoInfoHist prometheus.Histogram
+var moduleDenoInfoHist prometheus.Histogram
+
+func init() {
+	specifierDenoInfoHist = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name: "deno_info_specifier_hist",
+			Help: "A histogram for the duration of `deno info` for a single specifier",
+		},
+	)
+
+	moduleDenoInfoHist = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name: "deno_info_module_hist",
+			Help: "A histogram for the duration of `deno info` for an entire module version",
+		},
+	)
+
+	prometheus.MustRegister(specifierDenoInfoHist, moduleDenoInfoHist)
+}
+
 func main() {
 	log.Println("start.")
 	ctx := context.Background()
@@ -107,6 +128,7 @@ func IterateModuleInfo(mods chan deno.Module, sq *deno.SQSQueue) chan deno.DenoI
 	out := make(chan deno.DenoInfo)
 	go func() {
 		for mod := range mods {
+			modStart := time.Now()
 			for v, entrypoints := range mod.Versions {
 				for _, file := range entrypoints {
 					var path string
@@ -121,7 +143,11 @@ func IterateModuleInfo(mods chan deno.Module, sq *deno.SQSQueue) chan deno.DenoI
 						Host:   "deno.land",
 						Path:   path,
 					}
+
+					specificerStart := time.Now()
 					info, err := deno.ExecInfo(u)
+					specifierDenoInfoHist.Observe(time.Since(specificerStart).Seconds())
+
 					if err != nil {
 						log.Println(fmt.Errorf("failed to run deno exec on path %s: %s", u.String(), err))
 						// TODO(wperron) find a way to represent broken dependencies in tree
@@ -133,6 +159,7 @@ func IterateModuleInfo(mods chan deno.Module, sq *deno.SQSQueue) chan deno.DenoI
 			if err := sq.Delete(mod); err != nil {
 				log.Fatalf("failed to delete %s: %s", mod.Name, err)
 			}
+			moduleDenoInfoHist.Observe(time.Since(modStart).Seconds())
 		}
 		close(out)
 	}()
