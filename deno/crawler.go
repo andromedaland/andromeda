@@ -11,30 +11,30 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Crawler interface defines the basic functions of an HTTP crawler
-type Crawler interface {
+// Client interface defines the basic functions of an HTTP crawler
+type Client interface {
 	DoRequest(*http.Request) (*http.Response, error)
 }
 
-type crawler struct {
+type throttledClient struct {
 	client       *http.Client
 	ThrottleRate int // minimal interval wait between requests
 	mut          sync.Mutex
 	last         time.Time
 }
 
-// DefaultCrawler returns an instance of a crawler that uses the default http
+// DefaultClient returns an instance of a crawler that uses the default http
 // client
-func DefaultCrawler() Crawler {
-	return &crawler{
+func DefaultClient() Client {
+	return &throttledClient{
 		client:       http.DefaultClient,
 		ThrottleRate: 1,
 	}
 }
 
-// NewInstrumentedCrawler returns an instance of a crawler that uses an http
+// NewInstrumentedClient returns an instance of a crawler that uses an http
 // client intstrumented with Prometheus
-func NewInstrumentedCrawler() Crawler {
+func NewInstrumentedClient() Client {
 	client := http.DefaultClient
 	client.Timeout = 1 * time.Second
 
@@ -119,13 +119,13 @@ func NewInstrumentedCrawler() Crawler {
 	// Set the RoundTripper on our client.
 	client.Transport = roundTripper
 
-	return &crawler{
+	return &throttledClient{
 		client:       client,
 		ThrottleRate: 1,
 	}
 }
 
-func (c *crawler) DoRequest(req *http.Request) (*http.Response, error) {
+func (c *throttledClient) DoRequest(req *http.Request) (*http.Response, error) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
 

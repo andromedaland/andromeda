@@ -21,7 +21,7 @@ const PREFIX_LENGTH = len("https://deno.land/x/")
 
 // XQueuedCrawler is a composite type composed of both a Queue and a Crawler
 type XQueuedCrawler struct {
-	Crawler
+	Client
 	done chan bool
 	Queue
 }
@@ -60,8 +60,8 @@ type directoryListing struct {
 // a Queue
 func NewXQueuedCrawler(q Queue) *XQueuedCrawler {
 	return &XQueuedCrawler{
-		Crawler: NewInstrumentedCrawler(),
-		Queue:   q,
+		Client: NewInstrumentedClient(),
+		Queue:  q,
 	}
 }
 
@@ -201,6 +201,9 @@ func (x *XQueuedCrawler) listAllModules() (chan string, error) {
 
 	var moduleList simpleModuleList
 	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 	err = json.Unmarshal(body, &moduleList)
 
 	if err != nil {
@@ -232,6 +235,9 @@ func (x *XQueuedCrawler) listModuleVersions(mod string) (versions, error) {
 
 	var ver versions
 	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return versions{}, err
+	}
 	err = json.Unmarshal(body, &ver)
 
 	if err != nil {
@@ -256,6 +262,9 @@ func (x *XQueuedCrawler) getModuleVersionDirectoryListing(mod, version string) (
 
 	var m meta
 	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return []directoryListing{}, err
+	}
 	err = json.Unmarshal(body, &m)
 	if err != nil {
 		return []directoryListing{}, errors.Errorf("failed to unmarshal response body: %s", err)
